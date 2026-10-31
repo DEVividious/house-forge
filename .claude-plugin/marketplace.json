@@ -1,0 +1,16 @@
+{
+  "name": "house-forge",
+  "owner": {
+    "name": "Vividious",
+    "url": "https://github.com/DEVividious"
+  },
+  "description": "House Forge: turn floor plans into a 3D-printable scale model of a house.",
+  "plugins": [
+    {
+      "name": "house-forge",
+      "source": "./plugins/house-forge",
+      "description": "Floor plans, PDF sheets or CAD drawings into STL parts of a house model that fit your printer, with preview approval.",
+      "version": "0.1.0"
+    }
+  ]
+}

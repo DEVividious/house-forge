@@ -1,0 +1,82 @@
+<!-- generated from skills/home-from-plan/references/authoring-conventions.md of Home Simulator by npm run plugin:build -->
+# Authoring conventions (enforced by the compiler where possible)
+
+These rules make a package correct for the engine and stable for the user's saved work.
+
+## Coordinates and units
+- Metres; `+X` right on the plan, `+Y` up on the plan, `+Z` up. Images have y DOWN — use `"units": "px"` and let the compiler flip.
+- Origin: the **outer** corner of the building at the bottom-left of the plan, so exterior wall faces lie on `x = 0` / `y = 0` and
+  every coordinate is positive. Describe it in `project.origin`.
+- `Z = 0` is the finished floor of the lowest level; every height (`floorZ`, sills, heads, stairs) uses the same reference.
+- Plans need not face north: north is `sun.northAzimuthX` (azimuth of +X, clockwise from north; 90 = +X points east).
+
+## Rooms
+- Outline = **inner faces** of the walls (the clear floor area), axis-aligned edges only (the generated shell needs orthogonal
+  plans). Use `rect` for rectangles, `polygon` for L / U shapes. No holes.
+- Neighbouring rooms are separated by the wall thickness: interior 0.12 m, exterior 0.30 m (`defaults` if the building differs —
+  record the source). Faces that should line up must have the same coordinate.
+- An open kitchen + living room is ONE room with `"tags": ["kitchen"]`, even when the plan numbers them separately; put the
+  sum of their printed areas in `areaPrinted` and both numbers in plan.json `source`. A hall with stairs is one room containing the stair
+  box.
+- A room that opens fully into another (a corridor arm ending in the living room, no wall line between them) is either part of
+  that room (an L / U outline) or a separate room with a `passages` entry as wide as the opening — choose what the plan numbers
+  as rooms. The second leaves short wall stubs at the ends of the passage.
+- `kind` is mandatory and explicit — bath, kitchen, garage, tech, hall, bed, living, office, storage, room. Nothing is inferred
+  from names. Tags: `kitchen` (built-in kitchen behaviour), `garage`.
+- Room ids: `R1…` in reading order (top-left → bottom-right) per level, or the numbers printed on the plan (verbatim, recorded in
+  `source`). Ids never change after `--lock`.
+
+## Doors and openings
+- A door is `between: [A, B]` (or `[A, "exterior"]`) with `at` anywhere in the middle of the opening and `width` = clear opening
+  in the masonry (typical: 0.8 interior, 0.9 kitchen / living, 1.0 entrance). The compiler finds the wall and writes the gap into
+  BOTH rooms.
+- Hinged doors: `swingInto` = the room the leaf opens into (on drawings: the side the arc is drawn), `hinge` = left / right as
+  seen standing in that room looking at the wall (the arc's centre is the hinge). Exterior doors open into the building unless
+  the arc is drawn outside: then `"swingInto": "exterior"`.
+- Sliding / pocket: `"type": "sliding"`, `slideTo: "start" | "end"` (towards the smaller / larger coordinate along the wall).
+- An opening without a door leaf → `passages` (no door id).
+- Garage door (sectional, up-and-over, roller): no such door type — a `"type": "sliding"` door of the full width in the garage's
+  exterior wall (`height` ≈ the printed height, e.g. 2.25), noted in plan.json `source`. Cars drawn in a garage are context, not
+  furniture, unless the user wants them: the catalog item `car` fits one.
+- Heights default to 2.05 m opening / 2.00 m leaf.
+
+## Windows
+- `room`, `at` = a point on the wall in the middle of the window, `width`. Defaults: sill 0.85, head 2.35; bathrooms often sill
+  1.4 / head 2.1; kitchen above the worktop sill ~1.0. A glazed door to a terrace or balcony: `sill: 0` and `passable: true` if
+  the plot (`site`) exists and one can walk out.
+- Windows belong on exterior walls (the compiler warns otherwise).
+
+## Stairs
+- Only two-flight U-turn stairs are modelled: `box` [x0, y0, x1, y1] = both flights and the landing. `up` = the direction one
+  walks up the lower flight (on drawings: the arrow, from the "start" dot towards the landing; N = plan up), `turn` = left /
+  right on the landing. Width across the flights = 2 × flightWidth + gap; length ≥ (risers − 1) × tread + landing.
+- The centre of the box must lie in a room of the lower level and in a room of the upper level (the opening in its floor). On
+  the lower level the space under the upper flight belongs to the room around the foot of the stairs; printed areas usually
+  leave the stair out — say so in plan.json `source` when `areaPrinted` differs for that reason.
+- Draw the box on the inner faces; a box reaching a few centimetres into a wall is clipped to the room.
+- Other stair shapes (straight, L-shaped, winding): the nearest U-turn of the same footprint, or the opening as a room plus a
+  `notIncluded` note; say it in plan.json `source`.
+
+## Walls that are not orthogonal
+- The generated shell needs axis-aligned walls. A 45° corner (a chamfered hall, a wall under the stairs) becomes a right angle:
+  keep the room's area close (cut the corner at its middle) and move a door in such a wall onto the nearest orthogonal wall.
+  List every such change in plan.json `source`.
+
+## Provenance
+- `source` (plan-level default) says where the facts come from; per item `source` when it differs.
+- `defaults.confidence`: `confirmed` (CAD / dimensioned drawing), `probable` (calibrated image), `unknown` (interview / guess).
+- Furniture `basis`: `dimensioned`, `drawn` (outline on the plan), `approximate` (default layout).
+- Record printed areas in `areaPrinted`; the compiler compares them with the outline (> 10 % → warning: check the scale or the
+  outline).
+
+## Furniture
+- `at` = centre of the footprint; `rot`: 0 front faces +Y, 90 → −X, 180 → −Y, 270 → +X.
+- Against a wall: `"wall": "N|S|E|W"` + `"along"` (x for N / S walls, y for E / W walls) — the compiler puts the back 5 mm off
+  the wall and turns the front into the room.
+- Wall-mounted items (TV on the wall, mirror, wall cabinet, wall shelf, wall lamp) need `elevation` (bottom edge above the floor).
+
+## Electrical points
+- On a wall of their room (within 5 cm): `wall` + `along`, or `at` on the wall line. `height` above the finished floor.
+
+## Text
+- ids ASCII; names and labels in the user's language. No personal data (names, addresses, parcel numbers) in ids.

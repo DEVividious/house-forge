@@ -1,0 +1,1780 @@
+{
+ "title": "Home Simulator authoring plan (projects/<id>/source/plan.json)",
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "type": "object",
+ "properties": {
+  "$schema": {
+   "type": "string"
+  },
+  "schema": {
+   "type": "string",
+   "const": "home-simulator/plan"
+  },
+  "version": {
+   "type": "number",
+   "const": 1
+  },
+  "project": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "name": {
+     "type": "string",
+     "minLength": 1
+    },
+    "description": {
+     "type": "string"
+    },
+    "documentTitle": {
+     "type": "string"
+    },
+    "language": {
+     "type": "string"
+    },
+    "buildingType": {
+     "type": "string",
+     "enum": [
+      "house",
+      "apartment"
+     ]
+    },
+    "origin": {
+     "description": "where the project origin is and how the axes run (human-readable)",
+     "type": "string"
+    },
+    "metadata": {
+     "type": "object",
+     "propertyNames": {
+      "type": "string"
+     },
+     "additionalProperties": {
+      "type": [
+       "string",
+       "number",
+       "boolean",
+       "null"
+      ]
+     }
+    }
+   },
+   "required": [
+    "id",
+    "name",
+    "buildingType"
+   ],
+   "additionalProperties": false
+  },
+  "units": {
+   "default": "m",
+   "type": "string",
+   "enum": [
+    "m",
+    "px"
+   ]
+  },
+  "calibration": {
+   "type": "object",
+   "properties": {
+    "pxPerM": {
+     "type": "number",
+     "exclusiveMinimum": 0,
+     "description": "pixels per metre of the source image"
+    },
+    "originPx": {
+     "type": "array",
+     "prefixItems": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "number"
+      }
+     ],
+     "items": false,
+     "minItems": 2,
+     "maxItems": 2,
+     "description": "pixel that becomes the project origin (x = 0, y = 0)"
+    },
+    "methods": {
+     "description": "independent scale estimates (scale bar, printed area, door width…) — the build reports their agreement",
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "method": {
+        "type": "string"
+       },
+       "pxPerM": {
+        "type": "number",
+        "exclusiveMinimum": 0
+       },
+       "note": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "method",
+       "pxPerM"
+      ],
+      "additionalProperties": false
+     }
+    }
+   },
+   "required": [
+    "pxPerM",
+    "originPx"
+   ],
+   "additionalProperties": false
+  },
+  "regularize": {
+   "type": "boolean"
+  },
+  "source": {
+   "type": "string",
+   "description": "default provenance of every fact (e.g. \"floor plan image plan.png, calibrated from printed areas\")"
+  },
+  "defaults": {
+   "default": {},
+   "type": "object",
+   "properties": {
+    "exteriorWall": {
+     "default": 0.3,
+     "type": "number",
+     "exclusiveMinimum": 0
+    },
+    "interiorWall": {
+     "default": 0.12,
+     "type": "number",
+     "exclusiveMinimum": 0
+    },
+    "slab": {
+     "default": 0.25,
+     "type": "number",
+     "exclusiveMinimum": 0
+    },
+    "doorHeight": {
+     "default": 2.05,
+     "type": "number",
+     "exclusiveMinimum": 0
+    },
+    "leafHeight": {
+     "default": 2,
+     "type": "number",
+     "exclusiveMinimum": 0
+    },
+    "sill": {
+     "default": 0.85,
+     "type": "number",
+     "minimum": 0
+    },
+    "head": {
+     "default": 2.35,
+     "type": "number",
+     "exclusiveMinimum": 0
+    },
+    "confidence": {
+     "default": "probable",
+     "type": "string",
+     "enum": [
+      "confirmed",
+      "probable",
+      "unknown"
+     ]
+    },
+    "basis": {
+     "default": "approximate",
+     "type": "string",
+     "enum": [
+      "dimensioned",
+      "drawn",
+      "approximate"
+     ]
+    }
+   },
+   "additionalProperties": false
+  },
+  "levels": {
+   "minItems": 1,
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "name": {
+      "type": "string"
+     },
+     "floorZ": {
+      "type": "number"
+     },
+     "ceiling": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "ceiling height above the floor [m]"
+     },
+     "cutHeight": {
+      "description": "section height above the floor [m]; default: 10 cm above the highest window head, at least 2.30, below the ceiling",
+      "type": "number",
+      "exclusiveMinimum": 0
+     },
+     "slope": {
+      "description": "sloped ceilings of every room on this level (attic): without a roof block it becomes a gable roof part over the level; with one, a cross-check. A room's own `ceiling` is its flat top",
+      "type": "object",
+      "properties": {
+       "ridge": {
+        "type": "string",
+        "enum": [
+         "X",
+         "Y"
+        ],
+        "description": "the ridge line runs along this plan axis (X: left–right on the plan, Y: up–down)"
+       },
+       "ridgeAt": {
+        "description": "coordinate of the ridge line on the other axis (a point coordinate: px in a px plan); default: middle of the level",
+        "type": "number"
+       },
+       "lines": {
+        "minItems": 1,
+        "maxItems": 2,
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "at": {
+           "type": "number",
+           "description": "coordinate across the ridge (point units)"
+          },
+          "height": {
+           "type": "number",
+           "exclusiveMinimum": 0,
+           "description": "ceiling height on this line [m]"
+          }
+         },
+         "required": [
+          "at",
+          "height"
+         ],
+         "additionalProperties": false
+        },
+        "description": "height lines drawn on the plan (e.g. knee wall 1.40 and 2.20); two lines on one side of the ridge give the slope"
+       },
+       "pitch": {
+        "description": "roof pitch [°] — needed when only one line is given",
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "exclusiveMaximum": 80
+       },
+       "flat": {
+        "description": "height of the flat ceiling top (collar beams) [m]; default: the level ceiling",
+        "type": "number",
+        "exclusiveMinimum": 0
+       }
+      },
+      "required": [
+       "ridge",
+       "lines"
+      ],
+      "additionalProperties": false
+     },
+     "calibration": {
+      "description": "px plans drawn as one image per level: the scale and origin of THIS level's image (the origin pixel = the same building corner on every image); default: the plan calibration",
+      "type": "object",
+      "properties": {
+       "pxPerM": {
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "description": "pixels per metre of the source image"
+       },
+       "originPx": {
+        "type": "array",
+        "prefixItems": [
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         }
+        ],
+        "items": false,
+        "minItems": 2,
+        "maxItems": 2,
+        "description": "pixel that becomes the project origin (x = 0, y = 0)"
+       },
+       "methods": {
+        "description": "independent scale estimates (scale bar, printed area, door width…) — the build reports their agreement",
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "method": {
+           "type": "string"
+          },
+          "pxPerM": {
+           "type": "number",
+           "exclusiveMinimum": 0
+          },
+          "note": {
+           "type": "string"
+          }
+         },
+         "required": [
+          "method",
+          "pxPerM"
+         ],
+         "additionalProperties": false
+        }
+       }
+      },
+      "required": [
+       "pxPerM",
+       "originPx"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "required": [
+     "id",
+     "name",
+     "floorZ",
+     "ceiling"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "rooms": {
+   "minItems": 1,
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "name": {
+      "type": "string",
+      "minLength": 1
+     },
+     "level": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "kind": {
+      "type": "string",
+      "enum": [
+       "bath",
+       "kitchen",
+       "garage",
+       "tech",
+       "hall",
+       "bed",
+       "living",
+       "office",
+       "storage",
+       "room"
+      ]
+     },
+     "tags": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "label": {
+      "type": "string"
+     },
+     "rect": {
+      "description": "[x0, y0, x1, y1] of the inner wall faces",
+      "type": "array",
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+     },
+     "polygon": {
+      "description": "inner wall faces, axis-aligned edges, any order of corners along the outline",
+      "minItems": 4,
+      "type": "array",
+      "items": {
+       "type": "array",
+       "prefixItems": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "number"
+        }
+       ],
+       "items": false,
+       "minItems": 2,
+       "maxItems": 2
+      }
+     },
+     "ceiling": {
+      "description": "ceiling height above this room floor [m]; default: level ceiling",
+      "type": "number",
+      "exclusiveMinimum": 0
+     },
+     "areaPrinted": {
+      "description": "area printed on the plan [m²] (checked against the computed area)",
+      "type": "number",
+      "exclusiveMinimum": 0
+     },
+     "source": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "name",
+     "level",
+     "kind"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "doors": {
+   "default": [],
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "between": {
+      "type": "array",
+      "prefixItems": [
+       {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+       },
+       {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+       }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "the two rooms on either side; use \"exterior\" for an outside door"
+     },
+     "at": {
+      "type": "array",
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "any point in the middle of the door opening (on or inside the wall between the rooms)"
+     },
+     "width": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "clear opening in the masonry [m]"
+     },
+     "type": {
+      "default": "hinged-single",
+      "type": "string",
+      "enum": [
+       "hinged-single",
+       "sliding",
+       "pocket"
+      ]
+     },
+     "swingInto": {
+      "description": "hinged: the room the leaf opens into, or \"exterior\" for an outward-opening outside door (default: the second room, or the room for an exterior door)",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "hinge": {
+      "description": "hinged: hinge side as seen from the room the door opens into, looking at the wall",
+      "type": "string",
+      "enum": [
+       "left",
+       "right"
+      ]
+     },
+     "slideTo": {
+      "description": "sliding / pocket: the leaf moves towards the start (smaller coordinate) or end of the opening",
+      "type": "string",
+      "enum": [
+       "start",
+       "end"
+      ]
+     },
+     "height": {
+      "type": "number",
+      "exclusiveMinimum": 0
+     },
+     "leafHeight": {
+      "type": "number",
+      "exclusiveMinimum": 0
+     },
+     "confidence": {
+      "type": "string",
+      "enum": [
+       "confirmed",
+       "probable",
+       "unknown"
+      ]
+     },
+     "source": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "between",
+     "at",
+     "width"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "passages": {
+   "default": [],
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "between": {
+      "type": "array",
+      "prefixItems": [
+       {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+       },
+       {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+       }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+     },
+     "at": {
+      "type": "array",
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+     },
+     "width": {
+      "type": "number",
+      "exclusiveMinimum": 0
+     },
+     "height": {
+      "type": "number",
+      "exclusiveMinimum": 0
+     }
+    },
+    "required": [
+     "between",
+     "at",
+     "width"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "windows": {
+   "default": [],
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "room": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "at": {
+      "type": "array",
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "a point on the window wall, in the middle of the window"
+     },
+     "width": {
+      "type": "number",
+      "exclusiveMinimum": 0
+     },
+     "sill": {
+      "type": "number",
+      "minimum": 0
+     },
+     "head": {
+      "type": "number",
+      "exclusiveMinimum": 0
+     },
+     "passable": {
+      "description": "floor-level glazed door one can walk through onto the terrain",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "id",
+     "room",
+     "at",
+     "width"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "roofWindows": {
+   "default": [],
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "room": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "rect": {
+      "type": "array",
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4,
+      "description": "[x0, y0, x1, y1] of the window in the sloped ceiling, seen from above"
+     }
+    },
+    "required": [
+     "id",
+     "room",
+     "rect"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "roof": {
+   "description": "the roof: parts over the levels (gable, hip, shed, flat), dormers, chimneys; without it a level slope builds a gable part",
+   "type": "object",
+   "properties": {
+    "covering": {
+     "default": 0.05,
+     "description": "covering thickness (tiles, sheet) across the planes [m]",
+     "type": "number",
+     "minimum": 0
+    },
+    "buildup": {
+     "default": 0.25,
+     "description": "thickness of the structure under it (rafters, insulation, lining) [m]",
+     "type": "number",
+     "exclusiveMinimum": 0
+    },
+    "eaves": {
+     "default": 0.5,
+     "description": "default overhang at the eaves [m]",
+     "type": "number",
+     "minimum": 0
+    },
+    "verge": {
+     "default": 0.3,
+     "description": "default overhang at a gable end [m]",
+     "type": "number",
+     "minimum": 0
+    },
+    "ridgeHeight": {
+     "description": "height of the highest ridge (top of the covering) above z = 0 from the drawings [m] — checked (±10 cm)",
+     "type": "number",
+     "exclusiveMinimum": 0
+    },
+    "parts": {
+     "minItems": 1,
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "id": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+       },
+       "level": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
+        "description": "the level the part covers: its rooms get their ceilings from it"
+       },
+       "type": {
+        "type": "string",
+        "enum": [
+         "gable",
+         "hip",
+         "shed",
+         "flat"
+        ]
+       },
+       "rect": {
+        "description": "[x0, y0, x1, y1] — OUTER faces of the walls under the part (points); or \"rooms\"; default: the level outline (it must be a rectangle unless flat)",
+        "type": "array",
+        "prefixItems": [
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         }
+        ],
+        "items": false,
+        "minItems": 4,
+        "maxItems": 4
+       },
+       "rooms": {
+        "description": "the part covers these rooms (their outline grown by the exterior wall)",
+        "minItems": 1,
+        "type": "array",
+        "items": {
+         "type": "string",
+         "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        }
+       },
+       "polygon": {
+        "description": "flat part only: outer faces of the walls under it, axis-aligned edges",
+        "minItems": 4,
+        "type": "array",
+        "items": {
+         "type": "array",
+         "prefixItems": [
+          {
+           "type": "number"
+          },
+          {
+           "type": "number"
+          }
+         ],
+         "items": false,
+         "minItems": 2,
+         "maxItems": 2
+        }
+       },
+       "ridge": {
+        "description": "gable / hip: the ridge runs along this plan axis (default: along the longer side)",
+        "type": "string",
+        "enum": [
+         "X",
+         "Y"
+        ]
+       },
+       "ridgeAt": {
+        "description": "coordinate of the ridge line on the other axis (a point coordinate); default: the middle",
+        "type": "number"
+       },
+       "down": {
+        "description": "shed (and a flat roof with a pitch): the side the roof falls towards",
+        "type": "string",
+        "enum": [
+         "N",
+         "S",
+         "E",
+         "W"
+        ]
+       },
+       "pitch": {
+        "description": "roof pitch [°] (gable / hip / shed: 5–75; flat: 0–5)",
+        "type": "number",
+        "minimum": 0,
+        "exclusiveMaximum": 80
+       },
+       "pitchEnds": {
+        "description": "hip: pitch of the two end planes [°] (default: pitch)",
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "exclusiveMaximum": 80
+       },
+       "knee": {
+        "description": "height above the level floor where the underside of the roof structure meets the OUTER face of the eaves walls [m] (knee wall); default: the level ceiling + slab (a roof on top of the ceiling), for flat: the level ceiling",
+        "type": "number"
+       },
+       "lines": {
+        "description": "instead of knee: ceiling height lines from the plan (1.40 / 2.20); two lines on one side of the ridge give the pitch",
+        "minItems": 1,
+        "maxItems": 2,
+        "type": "array",
+        "items": {
+         "type": "object",
+         "properties": {
+          "at": {
+           "type": "number",
+           "description": "coordinate across the ridge (point units)"
+          },
+          "height": {
+           "type": "number",
+           "exclusiveMinimum": 0,
+           "description": "ceiling height on this line [m]"
+          }
+         },
+         "required": [
+          "at",
+          "height"
+         ],
+         "additionalProperties": false
+        }
+       },
+       "eaves": {
+        "description": "overhang at the eaves [m] (default: roof.eaves; flat: 0)",
+        "type": "number",
+        "minimum": 0
+       },
+       "verge": {
+        "description": "overhang at a gable end [m] (default: roof.verge)",
+        "type": "number",
+        "minimum": 0
+       },
+       "parapet": {
+        "description": "flat: parapet height above the covering [m]",
+        "type": "number",
+        "exclusiveMinimum": 0
+       },
+       "source": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "id",
+       "level",
+       "type"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "dormers": {
+     "default": [],
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "id": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+       },
+       "part": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
+        "description": "the roof part it stands on"
+       },
+       "type": {
+        "type": "string",
+        "enum": [
+         "gable",
+         "shed"
+        ]
+       },
+       "rect": {
+        "type": "array",
+        "prefixItems": [
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         }
+        ],
+        "items": false,
+        "minItems": 4,
+        "maxItems": 4,
+        "description": "[x0, y0, x1, y1] — outer faces of its walls in plan (points); the back may stop where it meets the roof — it is carried on to the ridge"
+       },
+       "front": {
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "description": "height above the level floor of the underside of the dormer roof at its eaves (gable: at the cheeks; shed: at the front) [m]"
+       },
+       "pitch": {
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "exclusiveMaximum": 80,
+        "description": "pitch of the dormer roof [°]"
+       },
+       "window": {
+        "description": "the window in its front: centred, sill / head above the room floor",
+        "type": "object",
+        "properties": {
+         "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+         },
+         "room": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+         },
+         "width": {
+          "type": "number",
+          "exclusiveMinimum": 0
+         },
+         "sill": {
+          "type": "number",
+          "minimum": 0
+         },
+         "head": {
+          "type": "number",
+          "exclusiveMinimum": 0
+         }
+        },
+        "required": [
+         "id",
+         "room",
+         "width"
+        ],
+        "additionalProperties": false
+       },
+       "source": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "id",
+       "part",
+       "type",
+       "rect",
+       "front",
+       "pitch"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "chimneys": {
+     "default": [],
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "id": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+       },
+       "rect": {
+        "type": "array",
+        "prefixItems": [
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         }
+        ],
+        "items": false,
+        "minItems": 4,
+        "maxItems": 4,
+        "description": "[x0, y0, x1, y1] (points)"
+       },
+       "top": {
+        "type": "number",
+        "description": "height of its top above z = 0 [m]"
+       }
+      },
+      "required": [
+       "id",
+       "rect",
+       "top"
+      ],
+      "additionalProperties": false
+     }
+    },
+    "confidence": {
+     "type": "string",
+     "enum": [
+      "confirmed",
+      "probable",
+      "unknown"
+     ]
+    },
+    "source": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "parts"
+   ],
+   "additionalProperties": false
+  },
+  "stairs": {
+   "default": [],
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "from": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "to": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "box": {
+      "type": "array",
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4,
+      "description": "[x0, y0, x1, y1] — outline of the whole stair (both flights and the landing)"
+     },
+     "up": {
+      "default": "S",
+      "description": "direction one walks up the lower flight (N = +y, plan up); the landing is at that end of the box",
+      "type": "string",
+      "enum": [
+       "N",
+       "S",
+       "E",
+       "W"
+      ]
+     },
+     "turn": {
+      "default": "right",
+      "description": "which way one turns on the landing going up (towards the upper flight)",
+      "type": "string",
+      "enum": [
+       "left",
+       "right"
+      ]
+     },
+     "risers": {
+      "type": "integer",
+      "minimum": 2,
+      "maximum": 9007199254740991,
+      "description": "risers per flight (two flights, U-turn)"
+     },
+     "tread": {
+      "type": "number",
+      "exclusiveMinimum": 0
+     },
+     "flightWidth": {
+      "type": "number",
+      "exclusiveMinimum": 0
+     },
+     "gap": {
+      "default": 0.05,
+      "type": "number",
+      "minimum": 0
+     },
+     "note": {
+      "type": "string"
+     },
+     "confidence": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "from",
+     "to",
+     "box",
+     "risers",
+     "tread",
+     "flightWidth"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "furniture": {
+   "default": [],
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "key": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "room": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "catalogId": {
+      "type": "string",
+      "minLength": 1
+     },
+     "variant": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "at": {
+      "description": "centre of the footprint",
+      "type": "array",
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+     },
+     "rot": {
+      "description": "0 = front faces +Y, 90 = −X, 180 = −Y, 270 = +X",
+      "type": "number"
+     },
+     "wall": {
+      "description": "back against this wall of the room (instead of at / rot)",
+      "type": "string",
+      "enum": [
+       "N",
+       "S",
+       "E",
+       "W"
+      ]
+     },
+     "along": {
+      "description": "with wall: coordinate of the item centre along the wall (x for N / S walls, y for E / W walls)",
+      "type": "number"
+     },
+     "dims": {
+      "type": "object",
+      "properties": {
+       "w": {
+        "type": "number"
+       },
+       "d": {
+        "type": "number"
+       },
+       "h": {
+        "type": "number"
+       }
+      },
+      "additionalProperties": false
+     },
+     "elevation": {
+      "type": "number"
+     },
+     "group": {
+      "type": "string"
+     },
+     "materialId": {
+      "type": "string"
+     },
+     "basis": {
+      "type": "string",
+      "enum": [
+       "dimensioned",
+       "drawn",
+       "approximate"
+      ]
+     },
+     "note": {
+      "type": "string"
+     },
+     "source": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "room",
+     "catalogId"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "notIncluded": {
+   "default": [],
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "room": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "what": {
+      "type": "string"
+     },
+     "why": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "room",
+     "what",
+     "why"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "electrical": {
+   "default": [],
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "type": {
+      "type": "string",
+      "minLength": 1
+     },
+     "room": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "height": {
+      "type": "number",
+      "description": "height above the finished floor [m]"
+     },
+     "label": {
+      "type": "string"
+     },
+     "at": {
+      "type": "array",
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+     },
+     "wall": {
+      "type": "string",
+      "enum": [
+       "N",
+       "S",
+       "E",
+       "W"
+      ],
+      "description": "wall of the room facing that side (N = +y, S = −y, E = +x, W = −x; plan up = N); in an L or U room the one that holds \"along\", else the longest"
+     },
+     "along": {
+      "type": "number"
+     },
+     "width": {
+      "type": "number"
+     },
+     "notes": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "type",
+     "room",
+     "height",
+     "label"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "site": {
+   "type": "object",
+   "properties": {
+    "boundary": {
+     "minItems": 3,
+     "type": "array",
+     "items": {
+      "type": "array",
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+     }
+    },
+    "margin": {
+     "description": "plot = building footprint grown by this margin [m]",
+     "type": "number",
+     "exclusiveMinimum": 0
+    },
+    "groundLevel": {
+     "default": -0.15,
+     "description": "terrain next to the building relative to the lowest floor [m]",
+     "type": "number"
+    }
+   },
+   "additionalProperties": false
+  },
+  "sun": {
+   "type": "object",
+   "properties": {
+    "lat": {
+     "type": "number",
+     "minimum": -90,
+     "maximum": 90
+    },
+    "lon": {
+     "type": "number",
+     "minimum": -180,
+     "maximum": 180
+    },
+    "timeZone": {
+     "type": "string",
+     "minLength": 1
+    },
+    "northAzimuthX": {
+     "type": "number",
+     "description": "azimuth of the +X axis measured clockwise from geographic north [°] (90 = +X points east)"
+    },
+    "confidence": {
+     "default": "probable",
+     "type": "string",
+     "enum": [
+      "confirmed",
+      "probable",
+      "unknown"
+     ]
+    },
+    "placeName": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "lat",
+    "lon",
+    "timeZone",
+    "northAzimuthX"
+   ],
+   "additionalProperties": false
+  },
+  "viewpoints": {
+   "default": [],
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "name": {
+      "type": "string"
+     },
+     "level": {
+      "type": "string"
+     },
+     "at": {
+      "type": "array",
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+     },
+     "look": {
+      "type": "array",
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "items": false,
+      "minItems": 3,
+      "maxItems": 3
+     },
+     "fov": {
+      "default": 70,
+      "type": "number"
+     },
+     "hint": {
+      "default": "",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "name",
+     "level",
+     "at",
+     "look"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "defaultView": {
+   "type": "object",
+   "properties": {
+    "level": {
+     "type": "string",
+     "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+    },
+    "room": {
+     "type": "string",
+     "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+    },
+    "view": {
+     "type": "string",
+     "enum": [
+      "exterior",
+      "interior"
+     ]
+    }
+   },
+   "additionalProperties": false
+  },
+  "notes": {
+   "description": "per room: where its default layout comes from",
+   "type": "object",
+   "propertyNames": {
+    "type": "string"
+   },
+   "additionalProperties": {
+    "type": "string"
+   }
+  },
+  "capabilities": {
+   "description": "sections the app offers for this building (default: all four)",
+   "type": "array",
+   "items": {
+    "type": "string",
+    "enum": [
+     "interiors",
+     "electrical",
+     "variants",
+     "walk"
+    ]
+   }
+  },
+  "assets": {
+   "description": "model files in the project directory, copied to project.json: model (building GLB instead of the generated shell), site (terrain GLB, needs \"site\"), environment (surroundings GLB — enables the environment module), bounds, sectionCaps, plinthExtra, groundMeshes",
+   "type": "object",
+   "properties": {
+    "model": {
+     "type": "string"
+    },
+    "site": {
+     "type": "string"
+    },
+    "environment": {
+     "type": "string"
+    },
+    "bounds": {
+     "type": "object",
+     "properties": {
+      "min": {
+       "type": "array",
+       "prefixItems": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "number"
+        },
+        {
+         "type": "number"
+        }
+       ],
+       "items": false,
+       "minItems": 3,
+       "maxItems": 3
+      },
+      "max": {
+       "type": "array",
+       "prefixItems": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "number"
+        },
+        {
+         "type": "number"
+        }
+       ],
+       "items": false,
+       "minItems": 3,
+       "maxItems": 3
+      }
+     },
+     "required": [
+      "min",
+      "max"
+     ],
+     "additionalProperties": false
+    },
+    "sectionCaps": {
+     "type": "object",
+     "propertyNames": {
+      "type": "string"
+     },
+     "additionalProperties": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    },
+    "plinthExtra": {
+     "type": "object",
+     "propertyNames": {
+      "type": "string"
+     },
+     "additionalProperties": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     }
+    },
+    "groundMeshes": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    }
+   },
+   "additionalProperties": false
+  },
+  "views": {
+   "description": "camera presets, copied to project.json (default: the engine views)",
+   "type": "object",
+   "properties": {
+    "presets": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "id": {
+        "type": "string",
+        "minLength": 1
+       },
+       "label": {
+        "type": "string"
+       },
+       "icon": {
+        "type": "string"
+       },
+       "hint": {
+        "type": "string"
+       },
+       "dir": {
+        "type": "array",
+        "prefixItems": [
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         },
+         {
+          "type": "number"
+         }
+        ],
+        "items": false,
+        "minItems": 3,
+        "maxItems": 3
+       },
+       "pose": {
+        "type": "object",
+        "properties": {
+         "position": {
+          "type": "array",
+          "prefixItems": [
+           {
+            "type": "number"
+           },
+           {
+            "type": "number"
+           },
+           {
+            "type": "number"
+           }
+          ],
+          "items": false,
+          "minItems": 3,
+          "maxItems": 3
+         },
+         "target": {
+          "type": "array",
+          "prefixItems": [
+           {
+            "type": "number"
+           },
+           {
+            "type": "number"
+           },
+           {
+            "type": "number"
+           }
+          ],
+          "items": false,
+          "minItems": 3,
+          "maxItems": 3
+         },
+         "fov": {
+          "type": "number"
+         }
+        },
+        "required": [
+         "position",
+         "target",
+         "fov"
+        ],
+        "additionalProperties": {}
+       },
+       "fit": {
+        "type": "number"
+       }
+      },
+      "required": [
+       "id",
+       "label",
+       "icon",
+       "hint"
+      ],
+      "additionalProperties": {}
+     }
+    },
+    "home": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "presets"
+   ],
+   "additionalProperties": false
+  },
+  "catalog": {
+   "description": "the project's own furniture / material catalog files (ids \"<project id>:…\"), copied to project.json",
+   "type": "object",
+   "properties": {
+    "furniture": {
+     "type": "string"
+    },
+    "materials": {
+     "type": "string"
+    }
+   },
+   "additionalProperties": false
+  },
+  "dataSources": {
+   "type": "object",
+   "propertyNames": {
+    "type": "string"
+   },
+   "additionalProperties": {
+    "type": "string"
+   }
+  }
+ },
+ "required": [
+  "schema",
+  "version",
+  "project",
+  "source",
+  "levels",
+  "rooms"
+ ],
+ "additionalProperties": false
+}

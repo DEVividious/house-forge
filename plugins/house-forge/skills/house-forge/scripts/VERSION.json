@@ -1,0 +1,8 @@
+{
+  "name": "house-forge",
+  "version": "0.1.0",
+  "engine": "1fe8d84",
+  "core": "0.1.0",
+  "manifold": "3.5.4",
+  "toolsLock": "sha256:fcc836c1d46999ad82264c9b83f9a05ace765383a7c99e034fac9288e6b1b47a"
+}
