@@ -12,7 +12,7 @@ source — the 1.40 / 2.20 lines, the furniture checks and the 3D view all come 
 | Attic floor plan | the **1.40 / 2.20 height lines** — dashed lines parallel to the eaves, labelled at the margin; the ridge runs parallel to them; **knee wall** (ścianka kolankowa) height, e.g. "h = 100", "ścianka kolankowa 1,0 m"; roof windows (rectangles with "78/140"); dormers (a bay in the outline with its own window) | <!-- i18n-ok: drawing terms in Polish -->
 | Section A-A (przekrój) | **pitch** — "kąt nachylenia dachu 40°", "∠ 40°", "40°" on the slope; knee wall height; **ridge height** — "kalenica +8,45", "wysokość budynku 8,45 m" (above ±0.00 = the finished ground floor); the eaves overhang | <!-- i18n-ok: drawing terms in Polish -->
 | Roof plan (rzut dachu, widok z góry) | **ridges** (kalenica) — the top lines; **hips** (narożnik) — diagonal lines from the corners up to the ridge; **valleys** (kosz) — diagonal lines from an inner corner; the **eaves** outline (okap) around the walls; chimneys (komin), roof windows, dormers; arrows down the slope with the pitch | <!-- i18n-ok: drawing terms in Polish -->
-| Elevations (elewacje) | the roof type (gable ends show a triangle of wall, hips do not); dormers and their windows; chimneys above the ridge |
+| Elevations (elewacje) | the roof type (gable ends show a triangle of wall, hips do not); dormers and their windows; chimneys above the ridge; the **parapet** of a flat roof (the band above its eaves) and an entrance canopy with its column |
 
 PDF sheets: `node "$HF" pdf text SHEET.pdf --out DIR --find pitch,ridge` lists the angles and the ridge heights it
 finds (`words.json › found`). Raster plans: read them off the image. Quote what you read in `source`.
@@ -41,6 +41,13 @@ finds (`words.json › found`). Raster plans: read them off the image. Quote wha
   sits on: its rooms get their ceilings from the part.
 - `type`: `gable` (two planes, triangles of wall at the ends), `hip` (four planes; `pitchEnds` for steeper or flatter ends),
   `shed` (one plane falling to `down`: N / S / E / W), `flat` (`pitch` 0–5, a `polygon` outline allowed, `parapet` height).
+- **Flat roofs and their parapet** (attyka): almost every flat roof of a house has one — a wall rising above the covering
+  round its edge, so the roof is a recess, not a plain slab. On the elevations it is the band above the flat roof's eaves line
+  (the garage box, the frame round a canopy); on the section the wall rising past the roof's top; read its height there
+  (typically 0.3–0.6 m) and put it in `parapet`. Not drawn and not said: ask (one question, step 3 of the house skill:
+  "Does the flat roof have a parapet round it, as on most flat roofs — about 30 cm?"); without one the flat roof is a plain slab.
+- **A canopy** (a flat roof over an entrance or a terrace, carried on columns): a flat part may run out past the walls — its
+  `polygon` covers the canopy, the columns under its edge are walls (`references/authoring-conventions.md` § Outside the walls).
 - Height: `knee` = height above the floor of the level where the underside of the roof meets the OUTER face of the eaves walls
   (the knee wall). Instead, `lines` like a level slope: `[{ "at": 1.2, "height": 1.4 }, { "at": 2.2, "height": 2.2 }]` (the
   1.40 / 2.20 lines, `at` across the ridge). Neither → a roof resting on the ceiling of the level (ceiling + slab): the usual
@@ -53,7 +60,8 @@ finds (`words.json › found`). Raster plans: read them off the image. Quote wha
   wall); a front set back on the roof gets its own window (`sill` / `head` between the roof below and the dormer roof). `front` =
   height of the dormer roof's eaves above the floor.
 - **Roof windows**: the top-level `roofWindows` (`room`, `rect` seen from above) — inside one sloped plane of that room's ceiling.
-- **Chimneys**: `rect` (points), `top` above z = 0; they stand from the slab of the lowest level they are in.
+- **Chimneys**: `rect` (points), `top` above z = 0; they stand from the slab of the lowest level they are in. A duct that starts
+  at a ceiling — a kitchen hood vent drawn dashed on the plan below — gets `from` = the level it stands in first.
 - Rooms on a roofed level keep their flat ceiling (`ceiling` or the level's) as the flat top (collar ties); the roof cuts it
   where it is lower. A level `slope` given together with the roof is a cross-check (a difference over 5 cm is a warning).
 
@@ -67,13 +75,17 @@ finds (`words.json › found`). Raster plans: read them off the image. Quote wha
 
 ## Checks (errors stop the build)
 
-- `roof.cover` — walls of a level are under no part (and no level above them); `roof.levelAbove` — a level stands on a part.
-- `window.roof` / `door.roof` — an opening higher than the roof plane at its wall (lower it, or put it in a dormer).
+- `roof.cover` — walls of a level are under no part (and no level above them) — exact area, a corner left out of a polygon
+  counts; `roof.levelAbove` — a level stands on a part.
+- `window.roof` / `door.roof` — an opening higher than the roof plane at its wall (lower it, or put it in a dormer); a gable
+  glazing (`outline`) may rise past the flat ceiling up to the roof plane.
+- `chimney.level` — `from` names no level; `chimney.outside` — the chimney is not over the walls of that level.
 - `roofWindow.plane` — a roof window across a ridge, a hip, a valley or the flat top; `dormer.plane` / `dormer.high` — a dormer
   across two planes, or higher than the roof behind it.
 - `roof.pitch` — pitched parts 5–75°, flat 0–5°.
 - Warnings: `roof.hip` (the ends meet before the ridge: a pyramid), `roof.eaves`, `roof.ridgeHeight`, `roof.slope`,
-  `roof.missing` (a part of the building with nothing above it), `chimney.low`.
+  `roof.missing` (a part of the building with nothing above it — also when there is no roof block: a ground floor
+  larger than the floor above stays open there), `chimney.low`.
 
 Usable areas under a roof (PN-ISO 9836: full above 2.20 m, half between 1.40 and 2.20 m) are compared with `areaPrinted` too —
 put the printed number as it is.

@@ -5,14 +5,14 @@
 |---|---|---|
 | Wall | thick black / hatched band; exterior ~0.25–0.45 m, interior ~0.08–0.15 m | room outlines on the inner faces; thickness = gap between neighbouring rooms |
 | Door (hinged) | a gap in the wall + a straight leaf line + a quarter arc | `doors[]`: arc centre = hinge, the arc lies in the room the door opens into (`swingInto`; an arc outside the building = `"exterior"`); arc radius ≈ leaf width (interior 0.7–0.9 m, entrance 0.9–1.0) |
-| Double door | two arcs meeting in the middle | one door of the full width (`hinged-single` is used by the engine; note it in plan.json `source`) |
-| Folding / bifold door | a zig-zag of short leaf lines, sometimes two small arcs | not supported — the nearest is one `hinged-single` (or `sliding` when it folds along the wall); note it in plan.json `source` |
+| Double door | two arcs meeting in the middle | one door of the full width, `"type": "hinged-double"`, `swingInto` = the side of the arcs (two equal leaves; unequal leaves: still `hinged-double`, note it in plan.json `source`) |
+| Folding / bifold door | a zig-zag of short leaf lines, sometimes two small arcs | `"type": "folding"`, `swingInto` = the side the zig-zag stands out to, `hinge` = the jamb it folds to (left / right seen from that room); four panels: the nearest is `hinged-double`, note it in plan.json `source` |
 | Sliding door | leaf drawn parallel to the wall, often with an arrow | `"type": "sliding"`, `slideTo` = direction of the arrow |
 | Pocket door | leaf drawn inside the wall thickness | `"type": "pocket"` |
 | Opening without door | a gap without a leaf | `passages[]` |
 | Window | thin double / triple lines across the wall band, often lighter | `windows[]` on that wall; width = length of the glazing lines |
 | Balcony / terrace door | window symbol reaching the floor, sometimes with an arc | window with `sill: 0` (`passable: true` if the plot is modelled) |
-| Stairs | parallel tread lines, a line with a dot at the start and an arrow towards "up" | `stairs[]`: U-turn with `up` (arrow direction on the lower flight) and `turn`; other shapes: nearest U-turn or a note |
+| Stairs | parallel tread lines, a line with a dot at the start and an arrow towards "up" | `stairs[]` with `kind`: `straight` (one run of treads), `l-turn` (two runs at a right angle, a square landing in the corner), `u-turn` (two runs side by side); `up` = arrow direction on the lower flight, `turn` on the landing; winders / spiral: nearest kind and a README note |
 | Bathtub | rounded rectangle ~1.6–1.8 × 0.7–0.8 m | `bathtub` (variant by length) — also a scale check |
 | WC | oval bowl + tank against a wall, ~0.4 × 0.65 m | `toilet` against that wall |
 | Washbasin | small oval / rectangle at a wall | `vanity` |
@@ -39,7 +39,13 @@
 | Dormer (lukarna) | a bay in the roof outline with its own small roof and window; on the attic plan a recess in the knee wall | `roof.dormers[]` |
 | Chimney (komin) | small filled or hatched rectangle in a wall, above the roof on elevations | `roof.chimneys[]` |
 | Car outline, garden plants, terrace paving | context drawings | not furniture by default — garage `kind: "garage"`; terrace as a note; a car only if the user wants cars |
-| Garage door | wide gap in the garage's exterior wall, label like "500/225" | `"type": "sliding"` door of that width and `height` (no sectional door type; note it) |
+| Garage door | wide gap in the garage's exterior wall, label like "500/225", sometimes the overhead tracks dashed into the garage | `"type": "sectional"` door of that width and `height` (it lifts under the garage ceiling; an up-and-over or roller door: the same, noted in plan.json `source`) |
+| Outdoor steps | short parallel lines in front of an entrance (or a terrace), a landing at the door, sometimes an arrow or the levels "−0,32" / "−0,02" | `steps`: box with the landing, `up`, `risers` = the rises from the ground to the landing |
+| Terrace | paving outside the walls (hatched, tiled, often with garden furniture), a level like "−0,15", a pergola drawn dashed over it | `terraces` when the user wants it in the model; pergola posts → columns |
+| Column / post | small filled square outside the walls, under a canopy or a pergola — often several in a row under a canopy's edge (a colonnade: count every square, each is a column; garden lamps stand along the path outside the canopy outline, not under it) | a short wall in `walls` per square (`from` / `to` along it, `thickness`, `height` to the canopy) |
+| Entrance canopy | dashed outline over the porch (a roof seen from below), on elevations a slab or frame over the door | the flat roof part's `polygon` runs out over it; its column a short wall |
+| Lamellas / slatted screen | a row of short strokes along a wall line, on elevations vertical boards beside the door | a wall in `walls` with a `slats` opening (not printed at small scales) |
+| Parapet (attyka) | on elevations a band above a flat roof's edge, on the section a wall rising past the roof top | the flat part's `parapet` (height above the covering) |
 | Watermark / logo | large diagonal text or a logo over the drawing | ignore |
 
 Size priors for calibration (`node "$HF" image calibrate symbol --kind …`) — for doors measure the **arc radius** (hinge to the tip

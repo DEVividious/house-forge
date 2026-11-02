@@ -25,6 +25,18 @@
      "type": "string",
      "minLength": 1
     },
+    "names": {
+     "type": "object",
+     "propertyNames": {
+      "type": "string",
+      "pattern": "^[a-z]{2}$"
+     },
+     "additionalProperties": {
+      "type": "string",
+      "minLength": 1
+     },
+     "description": "the text in other languages: language code → text (the main field is in the package's language)"
+    },
     "description": {
      "type": "string"
     },
@@ -32,6 +44,7 @@
      "type": "string"
     },
     "language": {
+     "description": "the language the names are written in (en, pl); `names` add the other languages",
      "type": "string"
     },
     "buildingType": {
@@ -209,6 +222,18 @@
      "name": {
       "type": "string"
      },
+     "names": {
+      "type": "object",
+      "propertyNames": {
+       "type": "string",
+       "pattern": "^[a-z]{2}$"
+      },
+      "additionalProperties": {
+       "type": "string",
+       "minLength": 1
+      },
+      "description": "the text in other languages: language code → text (the main field is in the package's language)"
+     },
      "floorZ": {
       "type": "number"
      },
@@ -360,6 +385,18 @@
       "type": "string",
       "minLength": 1
      },
+     "names": {
+      "description": "the name in other languages (language code → name), e.g. {\"en\": \"Kitchen\"} next to a Polish name",
+      "type": "object",
+      "propertyNames": {
+       "type": "string",
+       "pattern": "^[a-z]{2}$"
+      },
+      "additionalProperties": {
+       "type": "string",
+       "minLength": 1
+      }
+     },
      "level": {
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
@@ -410,8 +447,8 @@
       "maxItems": 4
      },
      "polygon": {
-      "description": "inner wall faces, axis-aligned edges, any order of corners along the outline",
-      "minItems": 4,
+      "description": "inner wall faces, edges along the plan axes or at 45° to them, corners in order along the outline",
+      "minItems": 3,
       "type": "array",
       "items": {
        "type": "array",
@@ -500,20 +537,24 @@
      },
      "type": {
       "default": "hinged-single",
+      "description": "hinged-double: two leaves hinged at both jambs; folding: a bifold — two panels folding to the hinge side; sectional: an overhead (garage) door whose panels lift up and back under the ceiling",
       "type": "string",
       "enum": [
        "hinged-single",
+       "hinged-double",
+       "folding",
        "sliding",
-       "pocket"
+       "pocket",
+       "sectional"
       ]
      },
      "swingInto": {
-      "description": "hinged: the room the leaf opens into, or \"exterior\" for an outward-opening outside door (default: the second room, or the room for an exterior door)",
+      "description": "hinged, double, folding: the room the leaves open into, or \"exterior\" for an outward-opening outside door; sectional: the room it lifts into (default: the second room, or the room for an exterior door)",
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
      },
      "hinge": {
-      "description": "hinged: hinge side as seen from the room the door opens into, looking at the wall",
+      "description": "hinged: hinge side as seen from the room the door opens into, looking at the wall; folding: the side the panels fold to",
       "type": "string",
       "enum": [
        "left",
@@ -640,6 +681,7 @@
       "description": "a point on the window wall, in the middle of the window"
      },
      "width": {
+      "description": "width along the wall [m] (not with outline)",
       "type": "number",
       "exclusiveMinimum": 0
      },
@@ -651,16 +693,46 @@
       "type": "number",
       "exclusiveMinimum": 0
      },
+     "outline": {
+      "description": "a glazing that is not a rectangle (a gable window under the roof): its corners as [coordinate along the wall (a point coordinate: x for a wall along X, y along Y; px in a px plan), height above the room floor (m)] — instead of width / sill / head; walls along the plan axes only",
+      "minItems": 3,
+      "type": "array",
+      "items": {
+       "type": "array",
+       "prefixItems": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "number"
+        }
+       ],
+       "items": false,
+       "minItems": 2,
+       "maxItems": 2
+      }
+     },
      "passable": {
       "description": "floor-level glazed door one can walk through onto the terrain",
       "type": "boolean"
+     },
+     "group": {
+      "description": "with outline: the glazing this window is part of — one glazing split by a partition into a window per room gets the same group in each room; the app divides and colours its parts as one",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "mullions": {
+      "description": "with outline: vertical bars of the glazing as drawn (where its units meet, the middle of a two-leaf unit) — coordinates along the wall like the outline's; the user can change them in the app",
+      "type": "array",
+      "items": {
+       "type": "number"
+      }
      }
     },
     "required": [
      "id",
      "room",
-     "at",
-     "width"
+     "at"
     ],
     "additionalProperties": false
    }
@@ -1040,6 +1112,11 @@
        "top": {
         "type": "number",
         "description": "height of its top above z = 0 [m]"
+       },
+       "from": {
+        "description": "the lowest level it stands in (default: the lowest level it is over); a duct that starts at a ceiling — e.g. a kitchen hood vent drawn dashed on the plan below — stands from the level above",
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
        }
       },
       "required": [
@@ -1085,6 +1162,16 @@
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
      },
+     "kind": {
+      "default": "u-turn",
+      "description": "straight: one flight; l-turn: two flights at a right angle, a landing in the corner; u-turn: two flights side by side, a landing across both",
+      "type": "string",
+      "enum": [
+       "straight",
+       "l-turn",
+       "u-turn"
+      ]
+     },
      "box": {
       "type": "array",
       "prefixItems": [
@@ -1104,11 +1191,11 @@
       "items": false,
       "minItems": 4,
       "maxItems": 4,
-      "description": "[x0, y0, x1, y1] — outline of the whole stair (both flights and the landing)"
+      "description": "[x0, y0, x1, y1] — outline of the whole stair (every flight and landing; for an l-turn the box around the L)"
      },
      "up": {
       "default": "S",
-      "description": "direction one walks up the lower flight (N = +y, plan up); the landing is at that end of the box",
+      "description": "direction one walks up the (lower) flight (N = +y, plan up); a straight flight arrives at that end of the box, an l-turn or u-turn has its landing there",
       "type": "string",
       "enum": [
        "N",
@@ -1119,7 +1206,7 @@
      },
      "turn": {
       "default": "right",
-      "description": "which way one turns on the landing going up (towards the upper flight)",
+      "description": "l-turn, u-turn: which way one turns on the landing going up (towards the upper flight)",
       "type": "string",
       "enum": [
        "left",
@@ -1130,7 +1217,13 @@
       "type": "integer",
       "minimum": 2,
       "maximum": 9007199254740991,
-      "description": "risers per flight (two flights, U-turn)"
+      "description": "straight: all the risers; l-turn: the risers of the lower flight; u-turn: risers per flight (both flights have them)"
+     },
+     "upperRisers": {
+      "description": "l-turn: the risers of the upper flight",
+      "type": "integer",
+      "minimum": 2,
+      "maximum": 9007199254740991
      },
      "tread": {
       "type": "number",
@@ -1142,6 +1235,7 @@
      },
      "gap": {
       "default": 0.05,
+      "description": "u-turn: the gap between the flights [m]",
       "type": "number",
       "minimum": 0
      },
@@ -1162,6 +1256,296 @@
      "flightWidth"
     ],
     "additionalProperties": false
+   }
+  },
+  "walls": {
+   "default": [],
+   "description": "walls that bound no room (they stand from the ground or the slab below their level up to their height); a column is a short one",
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "level": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "from": {
+      "type": "array",
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "one end of the wall's axis (a point)"
+     },
+     "to": {
+      "type": "array",
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "the other end of the axis"
+     },
+     "thickness": {
+      "description": "thickness about the axis [m] (default: the exterior wall)",
+      "type": "number",
+      "exclusiveMinimum": 0
+     },
+     "height": {
+      "description": "top above the level floor [m] (default: the level ceiling)",
+      "type": "number",
+      "exclusiveMinimum": 0
+     },
+     "openings": {
+      "default": [],
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "id": {
+         "type": "string",
+         "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "at": {
+         "type": "array",
+         "prefixItems": [
+          {
+           "type": "number"
+          },
+          {
+           "type": "number"
+          }
+         ],
+         "items": false,
+         "minItems": 2,
+         "maxItems": 2,
+         "description": "a point on the wall in the middle of the opening"
+        },
+        "width": {
+         "type": "number",
+         "exclusiveMinimum": 0
+        },
+        "sill": {
+         "type": "number",
+         "minimum": 0
+        },
+        "head": {
+         "type": "number",
+         "exclusiveMinimum": 0
+        },
+        "slats": {
+         "description": "the opening filled with vertical slats (a screen)",
+         "type": "object",
+         "properties": {
+          "width": {
+           "default": 0.04,
+           "type": "number",
+           "exclusiveMinimum": 0
+          },
+          "depth": {
+           "description": "default: the wall thickness",
+           "type": "number",
+           "exclusiveMinimum": 0
+          },
+          "gap": {
+           "default": 0.06,
+           "type": "number",
+           "exclusiveMinimum": 0
+          }
+         },
+         "additionalProperties": false
+        }
+       },
+       "required": [
+        "id",
+        "at",
+        "width",
+        "sill",
+        "head"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "source": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "level",
+     "from",
+     "to"
+    ],
+    "additionalProperties": false,
+    "description": "a wall that bounds no room: a wing wall beside a garage door, the wall of an entrance porch, a garden wall"
+   }
+  },
+  "terraces": {
+   "default": [],
+   "description": "terraces outside the walls (and balconies: a terrace on a higher level)",
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "level": {
+      "description": "the level it adjoins (default: the lowest — a terrace on the ground; on a higher level it is a slab: a balcony)",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "rect": {
+      "description": "[x0, y0, x1, y1] of its outline (points); it may run up to the outer face of the walls, not into a room",
+      "type": "array",
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4
+     },
+     "polygon": {
+      "description": "its outline (points), instead of rect",
+      "minItems": 3,
+      "type": "array",
+      "items": {
+       "type": "array",
+       "prefixItems": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "number"
+        }
+       ],
+       "items": false,
+       "minItems": 2,
+       "maxItems": 2
+      }
+     },
+     "top": {
+      "description": "height of its surface above the level floor [m] (default -0.02: just below the threshold of a terrace door)",
+      "type": "number"
+     },
+     "source": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "id"
+    ],
+    "additionalProperties": false,
+    "description": "a terrace outside the walls: a solid from the ground (on the lowest level) or a slab (higher up) up to its surface"
+   }
+  },
+  "steps": {
+   "default": [],
+   "description": "outdoor steps up to an entrance or a terrace",
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "level": {
+      "description": "the level the steps lead up to (only the lowest: they stand on the ground)",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+     },
+     "box": {
+      "type": "array",
+      "prefixItems": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       },
+       {
+        "type": "number"
+       }
+      ],
+      "items": false,
+      "minItems": 4,
+      "maxItems": 4,
+      "description": "[x0, y0, x1, y1] — outline of the steps with the top landing (points)"
+     },
+     "up": {
+      "type": "string",
+      "enum": [
+       "N",
+       "S",
+       "E",
+       "W"
+      ],
+      "description": "direction one walks up them (N = +y, plan up): the foot is at the opposite side of the box"
+     },
+     "risers": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "description": "the rises from the ground at the foot up to the top (the drawn steps; the last one rises onto the landing)"
+     },
+     "top": {
+      "description": "height of the landing above the level floor [m] (default -0.02: just below the threshold)",
+      "type": "number"
+     },
+     "landing": {
+      "description": "depth of the landing at the top end of the box [m] (default: one tread)",
+      "type": "number",
+      "exclusiveMinimum": 0
+     },
+     "ground": {
+      "description": "height of the ground at the foot above the level floor [m] (default: site.groundLevel, or -0.15)",
+      "type": "number"
+     },
+     "source": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "box",
+     "up",
+     "risers"
+    ],
+    "additionalProperties": false,
+    "description": "outdoor steps (an entrance, a terrace) — not the stairs between levels: equal treads rising from the ground to the landing at the top"
    }
   },
   "furniture": {
@@ -1449,6 +1833,18 @@
      "name": {
       "type": "string"
      },
+     "names": {
+      "type": "object",
+      "propertyNames": {
+       "type": "string",
+       "pattern": "^[a-z]{2}$"
+      },
+      "additionalProperties": {
+       "type": "string",
+       "minLength": 1
+      },
+      "description": "the text in other languages: language code → text (the main field is in the package's language)"
+     },
      "level": {
       "type": "string"
      },
@@ -1490,6 +1886,18 @@
      "hint": {
       "default": "",
       "type": "string"
+     },
+     "hints": {
+      "type": "object",
+      "propertyNames": {
+       "type": "string",
+       "pattern": "^[a-z]{2}$"
+      },
+      "additionalProperties": {
+       "type": "string",
+       "minLength": 1
+      },
+      "description": "the text in other languages: language code → text (the main field is in the package's language)"
      }
     },
     "required": [
@@ -1657,6 +2065,30 @@
        },
        "hint": {
         "type": "string"
+       },
+       "labels": {
+        "type": "object",
+        "propertyNames": {
+         "type": "string",
+         "pattern": "^[a-z]{2}$"
+        },
+        "additionalProperties": {
+         "type": "string",
+         "minLength": 1
+        },
+        "description": "the text in other languages: language code → text (the main field is in the package's language)"
+       },
+       "hints": {
+        "type": "object",
+        "propertyNames": {
+         "type": "string",
+         "pattern": "^[a-z]{2}$"
+        },
+        "additionalProperties": {
+         "type": "string",
+         "minLength": 1
+        },
+        "description": "the text in other languages: language code → text (the main field is in the package's language)"
        },
        "dir": {
         "type": "array",

@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.2.0
+
+- Stairs of three kinds: straight, L-shaped (a landing in the corner) and U-turn — `plan.json` stairs take `kind` and, for an L,
+  `upperRisers`; the print has solid steps of every kind (a straight flight no longer prints as an empty floor), and the slab
+  opening of an L follows the L.
+- Double doors (`hinged-double`) and bifold doors (`folding`).
+- Walls at 45° to the plan axes (chamfered corners, bays, slanted partitions) with doors and windows in them; a room may be a
+  triangle. Other angles are an error (`room.angle`).
+- The approval card is written wholly in the user's language, the kind of stairs included.
+- The parts stack like bricks: registration tabs on the top of the exterior walls fit pockets in the part above (`--joints
+  off` leaves them out); the card says how many.
+- A flat roof over a single-storey wing prints with the storey above it, so every storey's part is open from above.
+- Gable windows that are not rectangles (`outline` in `plan.json`: a trapezoid or pentagon under the roof).
+- Walls without a room (`walls` in `plan.json`): wing walls, porch walls, garden walls, openings in them filled with slats
+  (the slats are not printed).
+- Fewer questions: the skill names the workspace itself and takes the largest scale that fits, offering a smaller one on the
+  approval card. A plan with no dimension at all is read with the scale from its door and fixture symbols before anything is
+  asked; stairs that lead to a storey with no drawing are left out and said on the card, not asked about.
+- A straight flight ending at a wall with a short landing printed with an open ground-floor part; the landing now runs into the
+  walls around it.
+- Outside the walls: entrance steps (`steps` in `plan.json`: equal rises from the ground to the landing) and terraces
+  (`terraces`; a terrace on a higher level is a balcony slab) are part of the model and of the ground-floor part. The skill
+  reads the entrance canopy (a flat roof running out past the walls), its columns, lamellas and the parapet of a flat roof, and
+  asks whether a terrace drawn on the plan belongs in the model.
+- A flat roof is a recess inside its parapet: the skill reads the parapet from the elevations and asks when they do not show it.
+  The parapet stops at the walls of a higher storey instead of running along them; `compile` says each flat part's parapet and
+  lists what stands outside the walls.
+- A flat roof `polygon` given clockwise (as a px plan gives an outline drawn clockwise on the image) no longer stops the solids.
+- When the solid kernel stops on a geometry, the error says so in a sentence instead of a bare number.
+- A number of the building more than 10 km from the origin (a px plan without calibration, a few zeros too many) is an error
+  (`plan.range`) that names it, instead of a solid the kernel stops on.
+
+## 0.1.1
+
+- Every reply in the user's language, also the first sentence after a long run of tools.
+- `plan.json` takes names in a second language (`names`, viewpoint `hints`) for the Home Simulator app; the compiler warns when a
+  language is only partly translated. The print does not need them.
+
 ## 0.1.0
 
 - First version: plan images, vector PDF sheets (pymupdf) and DXF / DWG drawings read into `plan.json` with the Home Simulator

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// house-forge 0.1.0 — built from Home Simulator 1fe8d84 by npm run plugin:build; source: packages/house-forge (MIT).
+// house-forge 0.2.0 — built from Home Simulator 0c19c77 by npm run plugin:build; source: packages/house-forge (MIT).
 // Bundled: @home-sim/core, zod, manifold-3d (see THIRD-PARTY-NOTICES.md).
 var __defProp = Object.defineProperty;
 var __export = (target, all) => {
@@ -8,7 +8,7 @@ var __export = (target, all) => {
 };
 
 // <define:__HOUSE_FORGE__>
-var define_HOUSE_FORGE_default = { version: "0.1.0", core: "0.1.0", engine: "1fe8d84" };
+var define_HOUSE_FORGE_default = { version: "0.2.0", core: "0.1.0", engine: "0c19c77" };
 
 // packages/house-forge/src/cli.ts
 import fs6 from "node:fs";
@@ -21,6 +21,7 @@ var EPS = 1e-9;
 var round = (x, d = 4) => Math.round(x * 10 ** d) / 10 ** d + 0;
 var sub = (a, b) => [a[0] - b[0], a[1] - b[1]];
 var dot = (a, b) => a[0] * b[0] + a[1] * b[1];
+var cross = (a, b) => a[0] * b[1] - a[1] * b[0];
 var len = (a) => Math.hypot(a[0], a[1]);
 var dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 var norm = (a) => {
@@ -55,6 +56,47 @@ function pointInPolygon(q, p, tol = 1e-7) {
     if (yi > q[1] !== yj > q[1] && q[0] < (xj - xi) * (q[1] - yi) / (yj - yi) + xi) c = !c;
   }
   return c;
+}
+function uncoveredArea(shapes, covers) {
+  const all = [...shapes, ...covers], ys = new Set(all.flat().map((q) => q[1]));
+  const edges = all.flatMap((p) => p.map((a, i) => [a, p[(i + 1) % p.length]])).filter(([a, b]) => a[1] !== b[1]);
+  const slanted2 = edges.filter(([a, b]) => a[0] !== b[0]);
+  for (const [a, b] of slanted2) for (const [c, d] of edges) {
+    const r = sub(b, a), s = sub(d, c), den = cross(r, s);
+    if (Math.abs(den) < EPS) continue;
+    const t = cross(sub(c, a), s) / den, u = cross(sub(c, a), r) / den;
+    if (t > 0 && t < 1 && u > 0 && u < 1) ys.add(a[1] + r[1] * t);
+  }
+  const spans = (ps, y) => {
+    const out = [];
+    for (const p of ps) {
+      const xs = [];
+      for (let i = 0, j = p.length - 1; i < p.length; j = i++) {
+        const [xi, yi] = p[i], [xj, yj] = p[j];
+        if (yi > y !== yj > y) xs.push(xi + (y - yi) * (xj - xi) / (yj - yi));
+      }
+      xs.sort((u, w) => u - w);
+      for (let k = 0; k + 1 < xs.length; k += 2) out.push([xs[k], xs[k + 1]]);
+    }
+    out.sort((u, w) => u[0] - w[0]);
+    const merged = [];
+    for (const s of out) if (merged.length && s[0] <= merged[merged.length - 1][1]) merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], s[1]);
+    else merged.push([...s]);
+    return merged;
+  };
+  const sorted = [...ys].sort((u, w) => u - w);
+  let bare = 0;
+  for (let i = 0; i + 1 < sorted.length; i++) {
+    const h = sorted[i + 1] - sorted[i], y = (sorted[i] + sorted[i + 1]) / 2;
+    if (h < 1e-12) continue;
+    const own2 = spans(shapes, y), cov = spans(covers, y);
+    for (const [x0, x1] of own2) {
+      let open2 = x1 - x0;
+      for (const [c0, c1] of cov) open2 -= Math.max(0, Math.min(x1, c1) - Math.max(x0, c0));
+      bare += open2 * h;
+    }
+  }
+  return bare;
 }
 function segDist(q, a, b) {
   const ab = sub(b, a), L2 = dot(ab, ab);
@@ -184,8 +226,8 @@ function surfaceFacets(s, polygon, holes = []) {
       parts = parts.flatMap((p) => [clipLine(p, la, lb, lc, 1), clipLine(p, la, lb, lc, -1)].filter((q) => q.length >= 3 && area(q) > 1e-9));
     }
     for (const p of parts) {
-      const m = centroidOf(p), at = surfaceAt(s, m[0], m[1]);
-      if (at) out.push({ polygon: p, plane: at.plane });
+      const m = centroidOf(p), at2 = surfaceAt(s, m[0], m[1]);
+      if (at2) out.push({ polygon: p, plane: at2.plane });
     }
   }
   return out;
@@ -265,9 +307,9 @@ function roofFromAttic(rooms, exteriorWall) {
     const c = rs[0].ceiling;
     if (rs.some((r) => r.ceiling.kind !== "attic" || key(r.ceiling) !== key(c))) continue;
     const xs = rs.flatMap((r) => r.polygon.map((p) => p[0])), ys = rs.flatMap((r) => r.polygon.map((p) => p[1]));
-    const rect3 = [Math.min(...xs) - t, Math.min(...ys) - t, Math.max(...xs) + t, Math.max(...ys) + t].map(r6);
+    const rect5 = [Math.min(...xs) - t, Math.min(...ys) - t, Math.max(...xs) + t, Math.max(...ys) + t].map(r6);
     const ridge = c.ridge_x !== void 0 ? "Y" : "X", planes = atticPlanes(c);
-    parts.push({ id: `attic-${level}`, level, type: "gable", rect: rect3, extent: [gableExtent(rect3, ridge, D.eaves, D.verge).map(r6)], planes: planes.map(planeJson), ridge, pitch: Math.round(pitchOf(planes[0]) * 10) / 10 });
+    parts.push({ id: `attic-${level}`, level, type: "gable", rect: rect5, extent: [gableExtent(rect5, ridge, D.eaves, D.verge).map(r6)], planes: planes.map(planeJson), ridge, pitch: Math.round(pitchOf(planes[0]) * 10) / 10 });
   }
   return parts.length ? { covering: D.covering, buildup: D.buildup, parts } : null;
 }
@@ -304,12 +346,195 @@ function roofCeiling(pieces, flatZ, floorZ, polygon, roofWindows) {
   };
 }
 
+// packages/core/src/model/stairs.ts
+function stairFrame(s) {
+  const [x0, y0, x1, y1] = s.bbox, r = s.orient?.rotate ?? 0, m = !!s.orient?.mirror;
+  const W = x1 - x0, D = y1 - y0, [cw, cd] = r === 90 || r === 270 ? [D, W] : [W, D];
+  const box = [x0, y0, x0 + cw, y0 + cd];
+  if (!r && !m) return { box, toLocal: (p) => p, toWorld: (q) => q };
+  return {
+    box,
+    toLocal: ([px, py]) => {
+      const ux = px - x0, uy = py - y0;
+      let cx = r === 0 ? ux : r === 90 ? uy : r === 180 ? cw - ux : cw - uy;
+      const cy = r === 0 ? uy : r === 90 ? cd - ux : r === 180 ? cd - uy : ux;
+      if (m) cx = cw - cx;
+      return [x0 + cx, y0 + cy];
+    },
+    toWorld: ([qx, qy]) => {
+      const cx = m ? cw - (qx - x0) : qx - x0, cy = qy - y0;
+      const [ux, uy] = r === 0 ? [cx, cy] : r === 90 ? [cd - cy, cx] : r === 180 ? [cw - cx, cd - cy] : [cy, cw - cx];
+      return [x0 + ux, y0 + uy];
+    }
+  };
+}
+var flightLength = (f) => f.dir[0] ? f.rect[2] - f.rect[0] : f.rect[3] - f.rect[1];
+function flightSlice(f, d0, d1) {
+  const [x0, y0, x1, y1] = f.rect, a = Math.min(d0, d1), b = Math.max(d0, d1);
+  if (f.dir[0] > 0) return [x0 + a, y0, x0 + b, y1];
+  if (f.dir[0] < 0) return [x1 - b, y0, x1 - a, y1];
+  if (f.dir[1] > 0) return [x0, y0 + a, x1, y0 + b];
+  return [x0, y1 - b, x1, y1 - a];
+}
+var piecesCache = /* @__PURE__ */ new WeakMap();
+function stairPieces(s) {
+  const hit = piecesCache.get(s);
+  if (hit) return hit;
+  const [x0, y0, x1, y1] = stairFrame(s).box, out = [];
+  if (s.kind === "straight") {
+    const end = Math.max(y0, y1 - s.run);
+    out.push({ kind: "flight", id: "flight1", rect: [x0, end, x1, y1], dir: [0, -1], z0: 0, z1: s.topZ, risers: s.risers });
+    if (end - y0 > 1e-3) out.push({ kind: "landing", id: "top", rect: [x0, y0, x1, end], z: s.topZ });
+  } else if (s.kind === "l-turn") {
+    const yl = Math.max(y0, y1 - s.run), xl = Math.min(x1, x0 + s.upperRun);
+    const w1 = Math.min(s.flightWidth, x1 - xl), w2 = Math.min(s.flightWidth, yl - y0);
+    out.push({ kind: "flight", id: "flight1", rect: [x1 - w1, yl, x1, y1], dir: [0, -1], z0: 0, z1: s.landingZ, risers: s.risers });
+    out.push({ kind: "landing", id: "landing", rect: [xl, y0, x1, yl], z: s.landingZ });
+    out.push({ kind: "flight", id: "flight2", rect: [x0, y0, xl, y0 + w2], dir: [-1, 0], z0: s.landingZ, z1: s.topZ, risers: s.upperRisers });
+  } else {
+    const le = s.landingEdge, g = s.gap / 2;
+    out.push({ kind: "flight", id: "flight1", rect: [s.split + g, le, x1, y1], dir: [0, -1], z0: 0, z1: s.landingZ, risers: s.risers });
+    out.push({ kind: "landing", id: "landing", rect: [x0, y0, x1, le], z: s.landingZ });
+    out.push({ kind: "flight", id: "flight2", rect: [x0, le, s.split - g, y1], dir: [0, 1], z0: s.landingZ, z1: s.topZ, risers: s.risers });
+  }
+  piecesCache.set(s, out);
+  return out;
+}
+var sidesCache = /* @__PURE__ */ new WeakMap();
+function stairSides(s) {
+  const hit = sidesCache.get(s);
+  if (hit) return hit;
+  const pieces = stairPieces(s), box = stairFrame(s).box, out = [], E = 1e-6;
+  const first = pieces[0], last = pieces[pieces.length - 1];
+  for (const p of pieces) {
+    const [x0, y0, x1, y1] = p.rect;
+    const edges = [[[x0, y0], [x1, y0], [0, -1]], [[x1, y0], [x1, y1], [1, 0]], [[x1, y1], [x0, y1], [0, 1]], [[x0, y1], [x0, y0], [-1, 0]]];
+    for (const [a, b, n] of edges) {
+      const k = n[0] ? 0 : 1, c = a[k], lo = Math.min(a[1 - k], b[1 - k]), hi = Math.max(a[1 - k], b[1 - k]);
+      const cover = [];
+      for (const o of pieces) {
+        if (o === p) continue;
+        const oc = n[k] > 0 ? o.rect[k] : o.rect[k + 2];
+        if (Math.abs(oc - c) > E) continue;
+        const l = Math.max(lo, o.rect[1 - k]), h = Math.min(hi, o.rect[3 - k]);
+        if (h - l > E) cover.push([l, h]);
+      }
+      cover.sort((u, v) => u[0] - v[0]);
+      const runs = [];
+      let t = lo;
+      for (const [l, h] of cover) {
+        if (l - t > E) runs.push([t, l, false]);
+        runs.push([Math.max(t, l), h, true]);
+        t = Math.max(t, h);
+      }
+      if (hi - t > E) runs.push([t, hi, false]);
+      const outer = Math.abs(c - (n[k] > 0 ? box[k + 2] : box[k])) < E;
+      for (const [l, h, joined] of runs) {
+        const pa = k === 0 ? [c, l] : [l, c], pb = k === 0 ? [c, h] : [h, c];
+        const [sa, sb] = n[0] > 0 || n[1] < 0 ? [pa, pb] : [pb, pa];
+        let kind;
+        if (joined) kind = "joined";
+        else if (p === first && n[0] === -first.dir[0] && n[1] === -first.dir[1]) kind = "entry";
+        else if (p === last && (p.kind === "landing" || n[0] === p.dir[0] && n[1] === p.dir[1])) kind = "exit";
+        else if (s.kind === "u-turn") kind = p.kind === "landing" ? outer ? n[0] > 0 ? "open" : "wall" : "joined" : outer ? n[0] > 0 ? "open" : "wall" : "partition";
+        else if (s.kind === "l-turn") kind = outer ? "wall" : "open";
+        else kind = "open";
+        out.push({ piece: p, a: sa, b: sb, out: n, kind, outer });
+      }
+    }
+  }
+  sidesCache.set(s, out);
+  return out;
+}
+var outlineCache = /* @__PURE__ */ new WeakMap();
+function stairOutline(s) {
+  const hit = outlineCache.get(s);
+  if (hit) return hit;
+  const f = stairFrame(s), [x0, y0, x1, y1] = f.box;
+  let loop = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+  if (s.kind === "l-turn") {
+    const [f1, land, f2] = stairPieces(s);
+    loop = [[x0, y0], [x1, y0], [x1, y1], [f1.rect[0], y1], [f1.rect[0], land.rect[3]], [land.rect[0], land.rect[3]], [land.rect[0], f2.rect[3]], [x0, f2.rect[3]]];
+  }
+  loop = loop.filter((p, i) => {
+    const q = loop[(i + 1) % loop.length];
+    return Math.abs(p[0] - q[0]) > 1e-9 || Math.abs(p[1] - q[1]) > 1e-9;
+  });
+  loop = loop.filter((p, i) => {
+    const a = loop[(i - 1 + loop.length) % loop.length], b = loop[(i + 1) % loop.length];
+    return Math.abs((p[0] - a[0]) * (b[1] - p[1]) - (p[1] - a[1]) * (b[0] - p[0])) > 1e-12;
+  });
+  const out = ccw(loop.map((q) => f.toWorld(q)));
+  outlineCache.set(s, out);
+  return out;
+}
+function stairDrawing(s) {
+  const f = stairFrame(s), W = f.toWorld, pieces = stairPieces(s), flights = pieces.filter((p) => p.kind === "flight");
+  const treads = [];
+  flights.forEach((p, i) => {
+    const n = p.risers - 1;
+    for (let k2 = i === 0 ? 1 : 0; k2 <= (i === flights.length - 1 && pieces[pieces.length - 1] === p ? n - 1 : n); k2++) {
+      const [x0, y0, x1, y1] = flightSlice(p, k2 * s.tread, k2 * s.tread);
+      treads.push(p.dir[0] ? [W([x0, y0]), W([x0, y1])] : [W([x0, y0]), W([x1, y0])]);
+    }
+  });
+  const edges = stairSides(s).filter((e) => e.kind === "partition").map((e) => [W(e.a), W(e.b)]);
+  const mid = (p) => [(p.rect[0] + p.rect[2]) / 2, (p.rect[1] + p.rect[3]) / 2];
+  const at2 = (p, d) => {
+    const [x0, y0] = flightSlice(p, d, d), c = mid(p);
+    return p.dir[0] ? [x0, c[1]] : [c[0], y0];
+  };
+  const f1 = flights[0], path7 = [at2(f1, Math.min(0.1, flightLength(f1) / 4))];
+  for (let i = 1; i < flights.length; i++) {
+    const a = flights[i - 1], b = flights[i], ca = mid(a), cb = mid(b), land = pieces.find((p) => p.kind === "landing" && p.id === "landing");
+    if (a.dir[0] === 0 && b.dir[0] !== 0) path7.push([ca[0], cb[1]]);
+    else if (a.dir[0] !== 0 && b.dir[0] === 0) path7.push([cb[0], ca[1]]);
+    else if (a.dir[0] === 0) {
+      const y = (land.rect[1] + land.rect[3]) / 2;
+      path7.push([ca[0], y], [cb[0], y]);
+    } else {
+      const x = (land.rect[0] + land.rect[2]) / 2;
+      path7.push([x, ca[1]], [x, cb[1]]);
+    }
+  }
+  const fl = flights[flights.length - 1], L = flightLength(fl), tip = at2(fl, Math.max(L / 2, L - 0.05)), back = at2(fl, Math.max(L / 2 - 0.2, L - 0.25));
+  const dx = tip[0] - back[0], dy = tip[1] - back[1], k = 0.12 / Math.max(1e-9, Math.hypot(dx, dy));
+  path7.push(at2(fl, Math.max(L / 2, L - 0.15)));
+  const lf = s.kind === "straight" ? f1 : fl, lm = mid(lf), q = (lf.dir[0] ? lf.rect[3] - lf.rect[1] : lf.rect[2] - lf.rect[0]) / 4;
+  const label = lf.dir[0] ? [lm[0], lm[1] + q] : [lm[0] + q, lm[1]];
+  return { outline: stairOutline(s), treads, edges, path: path7.map(W), head: [W(tip), W([back[0] - dy * k, back[1] + dx * k]), W([back[0] + dy * k, back[1] - dx * k])], label: W(label) };
+}
+
+// packages/core/src/model/wallLine.ts
+var X_FRAME = { dir: [1, 0], n: [0, 1] };
+var Y_FRAME = { dir: [0, 1], n: [1, 0] };
+function lineFrame(along, dir) {
+  if (along === "X") return X_FRAME;
+  if (along === "Y") return Y_FRAME;
+  if (!dir) throw new Error("a slanted wall line needs its direction");
+  const l = Math.hypot(dir[0], dir[1]) || 1, d = [dir[0] / l, dir[1] / l];
+  return { dir: d, n: [-d[1], d[0]] };
+}
+var lineT = (f, p) => p[0] * f.dir[0] + p[1] * f.dir[1];
+var lineC = (f, p) => p[0] * f.n[0] + p[1] * f.n[1];
+var linePt = (f, t, c) => [f.dir[0] * t + f.n[0] * c, f.dir[1] * t + f.n[1] * c];
+function canonicalDir(d) {
+  const l = Math.hypot(d[0], d[1]) || 1;
+  let x = d[0] / l, y = d[1] / l;
+  if (x < -1e-9 || Math.abs(x) <= 1e-9 && y < 0) {
+    x = -x;
+    y = -y;
+  }
+  return [x + 0, y + 0];
+}
+var gapFrame = (g) => lineFrame(g.along, g.dir);
+var windowFrame = (o) => o.plane_axis === "D" ? lineFrame("D", o.dir) : o.plane_axis === "X" ? Y_FRAME : X_FRAME;
+
 // packages/core/src/model/building.ts
 var DEFAULT_DOOR_HEIGHT = 2.05;
 var DEFAULT_CUT_HEIGHT = 2.3;
 var DEFAULT_PLAN_WALL_OFFSET = 0.13;
 var SHELL_DEFAULTS = { exteriorWall: 0.3, slab: 0.25 };
-var onLine = (a, b, axis, c, tol = 2e-3) => axis === "X" ? Math.abs(a[0] - c) < tol && Math.abs(b[0] - c) < tol : Math.abs(a[1] - c) < tol && Math.abs(b[1] - c) < tol;
 var EVERYWHERE = [-1e6, -1e6, 1e6, 1e6];
 function ceilingFor(r, poly, roof, roofWindows) {
   const c = r.ceiling, under = roof?.byLevel(r.level) ?? [];
@@ -320,7 +545,7 @@ function ceilingFor(r, poly, roof, roofWindows) {
   if (c.kind === "roof") return roofCeiling(under, c.flat_z, r.floor_z, poly, roofWindows);
   return under.length ? roofCeiling(under, c.z, r.floor_z, poly, roofWindows) : flatCeiling(c.z, r.floor_z, poly);
 }
-function buildRoom(r, roof) {
+function buildRoom(r, roof, stairs) {
   const poly = ccw(r.polygon.map((p) => [p[0], p[1]]));
   const ceiling = ceilingFor(r, poly, roof, r.roof_windows.map((w) => [w.plan_rect[0], w.plan_rect[1], w.plan_rect[2], w.plan_rect[3]]));
   const walls = poly.map((a, i) => {
@@ -328,18 +553,19 @@ function buildRoom(r, roof) {
     return { id: `${r.id}-w${i + 1}`, index: i + 1, roomId: r.id, a, b, length: round(dist(a, b), 4), dir: d, inward: [-d[1], d[0]], holes: [] };
   });
   const tOn = (w, p) => (p[0] - w.a[0]) * w.dir[0] + (p[1] - w.a[1]) * w.dir[1];
-  const span2 = (w, axis, s0, s1) => {
-    const pa = axis === "X" ? [s0, w.a[1]] : [w.a[0], s0], pb = axis === "X" ? [s1, w.a[1]] : [w.a[0], s1];
-    const t0 = Math.max(0, Math.min(tOn(w, pa), tOn(w, pb))), t1 = Math.min(w.length, Math.max(tOn(w, pa), tOn(w, pb)));
+  const onLine = (w, f, c, tol = 2e-3) => Math.abs(lineC(f, w.a) - c) < tol && Math.abs(lineC(f, w.b) - c) < tol;
+  const span2 = (w, f, s0, s1) => {
+    const c = lineC(f, w.a), ta = tOn(w, linePt(f, s0, c)), tb = tOn(w, linePt(f, s1, c));
+    const t0 = Math.max(0, Math.min(ta, tb)), t1 = Math.min(w.length, Math.max(ta, tb));
     return t1 - t0 > 0.02 ? [round(t0), round(t1)] : null;
   };
   const doors = [];
   for (const d of r.doors) {
+    const f = gapFrame(d);
     for (const w of walls) {
-      const along = d.along, other2 = along === "X" ? "Y" : "X";
-      const hit = d.across.find((c) => onLine(w.a, w.b, other2, c));
+      const hit = d.across.find((c) => onLine(w, f, c));
       if (hit === void 0) continue;
-      const s = span2(w, along, d.from_, d.to);
+      const s = span2(w, f, d.from_, d.to);
       if (!s) continue;
       const passage = !d.door_id;
       const z1 = passage ? round(Math.min(d.height ?? Infinity, ceiling.heightAt(...w.a), ceiling.heightAt(...w.b))) : d.height ?? DEFAULT_DOOR_HEIGHT;
@@ -350,15 +576,16 @@ function buildRoom(r, roof) {
   }
   const windows = [];
   for (const o of r.openings) {
+    const f = windowFrame(o);
     for (const w of walls) {
-      if (!onLine(w.a, w.b, o.plane_axis, o.inner)) continue;
-      const along = o.plane_axis === "X" ? "Y" : "X";
-      const s = span2(w, along, Math.min(o.from_, o.to), Math.max(o.from_, o.to));
+      if (!onLine(w, f, o.inner)) continue;
+      const s = span2(w, f, Math.min(o.from_, o.to), Math.max(o.from_, o.to));
       if (!s) continue;
       if (o.polygon_YZ) {
-        const pts = o.polygon_YZ.map((q) => [round(Math.min(w.length, Math.max(0, tOn(w, [w.a[0], q[0]])))), round(q[1] - r.floor_z)]);
+        const pts = o.polygon_YZ.map((q) => [round(Math.min(w.length, Math.max(0, tOn(w, linePt(f, q[0], o.inner))))), round(q[1] - r.floor_z)]);
         const z0 = Math.min(...pts.map((p) => p[1])), z1 = Math.max(...pts.map((p) => p[1]));
-        w.holes.push({ id: o.id, kind: "glazing", t0: s[0], t1: s[1], z0, z1, polygon: pts });
+        const bars = o.mullions?.map((m) => round(tOn(w, linePt(f, m, o.inner)))).filter((t) => t > s[0] && t < s[1]).sort((a, b) => a - b);
+        w.holes.push({ id: o.id, kind: "glazing", t0: s[0], t1: s[1], z0, z1, polygon: pts, ...bars?.length ? { mullions: bars } : {} });
         windows.push({ id: o.id, wallId: w.id, t0: s[0], t1: s[1], sill: z0, head: z1, kind: "glazing" });
       } else {
         const sill = round((o.sill_z ?? 0) - r.floor_z), head = round((o.head_z ?? 2.4) - r.floor_z);
@@ -390,10 +617,17 @@ function buildRoom(r, roof) {
     doors,
     windows,
     stairOpening: r.stair_opening ? [r.stair_opening[0], r.stair_opening[1], r.stair_opening[2], r.stair_opening[3]] : null,
+    stairOutline: r.stair_opening ? openingOutline(r, stairs) : null,
     roofWindows: r.roof_windows.map((w) => ({ id: w.id, rect: [w.plan_rect[0], w.plan_rect[1], w.plan_rect[2], w.plan_rect[3]] }))
   };
 }
+function openingOutline(r, stairs) {
+  const [x0, y0, x1, y1] = r.stair_opening, s = stairs.find((q) => q.toLevel === r.level && q.bbox.every((v, i) => Math.abs(v - r.stair_opening[i]) < 1e-6));
+  return s ? stairOutline(s) : [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+}
 var NO_STAIRS = [];
+var NO_WALLS = [];
+var NO_PLATFORMS = [];
 var cache = /* @__PURE__ */ new WeakMap();
 function building(data) {
   const hit = cache.get(data);
@@ -402,7 +636,7 @@ function building(data) {
   const attic = data.roof ? null : roofFromAttic(src.rooms, shell.exteriorWall);
   const roof = data.roof ? roofModel(data.roof) : attic ? roofModel(attic, true) : null;
   const levels = Object.entries(src.levels).map(([id3, l]) => ({ id: id3, name: l.name, floorZ: l.floor_z, cutHeight: l.cut_height ?? DEFAULT_CUT_HEIGHT, planWallOffset: l.plan_wall_offset ?? DEFAULT_PLAN_WALL_OFFSET })).sort((a, b2) => a.floorZ - b2.floorZ);
-  const rooms = src.rooms.map((r) => buildRoom(r, roof));
+  const stairs = data.stairs ?? NO_STAIRS, rooms = src.rooms.map((r) => buildRoom(r, roof, stairs));
   const roomsByLevel = new Map(levels.map((l) => [l.id, rooms.filter((r) => r.level === l.id)]));
   const b = {
     levels,
@@ -411,7 +645,9 @@ function building(data) {
     roomById: new Map(rooms.map((r) => [r.id, r])),
     roomsByLevel,
     doors: data.doors,
-    stairs: data.stairs ?? NO_STAIRS,
+    stairs,
+    walls: data.walls ?? NO_WALLS,
+    platforms: data.platforms ?? NO_PLATFORMS,
     shell,
     roof
   };
@@ -1136,8 +1372,8 @@ function cleanRegex(source) {
   const end = source.endsWith("$") ? source.length - 1 : source.length;
   return source.slice(start, end);
 }
-function floatSafeRemainder(val, step) {
-  const ratio = val / step;
+function floatSafeRemainder(val, step2) {
+  const ratio = val / step2;
   const roundedRatio = Math.round(ratio);
   const tolerance = 4 * Number.EPSILON * Math.max(Math.abs(ratio), 1);
   if (Math.abs(ratio - roundedRatio) < tolerance)
@@ -15885,13 +16121,13 @@ function _promise(Class2, innerType) {
 }
 // @__NO_SIDE_EFFECTS__
 function _custom(Class2, fn, _params) {
-  const norm3 = normalizeParams(_params);
-  norm3.abort ?? (norm3.abort = true);
+  const norm4 = normalizeParams(_params);
+  norm4.abort ?? (norm4.abort = true);
   const schema = new Class2({
     type: "custom",
     check: "custom",
     fn,
-    ...norm3
+    ...norm4
   });
   return schema;
 }
@@ -16279,8 +16515,8 @@ function foldObjects(members2) {
       if (Object.prototype.hasOwnProperty.call(properties, key))
         continue;
       const parts = [];
-      for (const other2 of objects) {
-        const part = other2.properties?.[key] ?? undeclaredConstraint(other2);
+      for (const other of objects) {
+        const part = other.properties?.[key] ?? undeclaredConstraint(other);
         if (part === null || part === void 0)
           continue;
         if (!parts.some((seen) => JSON.stringify(seen) === JSON.stringify(part)))
@@ -18511,8 +18747,8 @@ var ZodObject = /* @__PURE__ */ $constructor("ZodObject", (inst, def) => {
   safeExtend(incoming) {
     return util_exports.safeExtend(this, incoming);
   },
-  merge(other2) {
-    return util_exports.merge(this, other2);
+  merge(other) {
+    return util_exports.merge(this, other);
   },
   pick(mask) {
     return util_exports.pick(this, mask);
@@ -20145,9 +20381,12 @@ var vec2 = external_exports.tuple([num, num]);
 var vec3 = external_exports.tuple([num, num, num]);
 var id = external_exports.string().min(1);
 var confidence = external_exports.enum(["confirmed", "probable", "unknown"]);
+var NamesSchema = external_exports.record(external_exports.string().regex(/^[a-z]{2}$/, "a two-letter language code (en, pl)"), external_exports.string().min(1)).describe("the text in other languages: language code → text (the main field is in the package's language)");
 var RoomKindSchema = external_exports.enum(["bath", "kitchen", "garage", "tech", "hall", "bed", "living", "office", "storage", "room"]);
+var slanted = (d, kind) => kind !== "D" || Array.isArray(d.dir);
 var DoorGapSchema = external_exports.looseObject({
-  along: external_exports.enum(["X", "Y"]),
+  along: external_exports.enum(["X", "Y", "D"]).describe("wall line: along X (from / to are x, across are y), along Y, or D — slanted, with `dir`"),
+  dir: vec2.optional().describe("slanted wall: unit direction along it; from / to = p · dir, across = p · n, n = (−dir.y, dir.x)"),
   from_: num,
   to: num,
   across: external_exports.array(num).length(2),
@@ -20155,18 +20394,21 @@ var DoorGapSchema = external_exports.looseObject({
   door_id: external_exports.string().nullable(),
   leaf: num.nullable(),
   height: num.nullable()
-}).describe("door gap or passage in a room wall; the same gap appears in the rooms on both sides");
+}).refine((g) => slanted(g, g.along), 'a gap in a slanted wall (along "D") needs "dir"').describe("door gap or passage in a room wall; the same gap appears in the rooms on both sides");
 var WindowSchema = external_exports.looseObject({
   id,
   kind: external_exports.string(),
-  plane_axis: external_exports.enum(["X", "Y"]).describe("axis whose coordinate is constant along the wall face"),
+  plane_axis: external_exports.enum(["X", "Y", "D"]).describe("axis whose coordinate is constant along the wall face; D — a slanted wall, with `dir`"),
+  dir: vec2.optional().describe("slanted wall: unit direction along it; from / to = p · dir, inner = p · n, n = (−dir.y, dir.x)"),
   inner: num.describe("coordinate of the room-side wall face"),
   from_: num,
   to: num,
   sill_z: num.optional(),
   head_z: num.optional(),
-  polygon_YZ: external_exports.array(external_exports.array(num)).optional()
-});
+  polygon_YZ: external_exports.array(external_exports.array(num)).optional(),
+  mullions: external_exports.array(num).optional(),
+  group: external_exports.string().optional()
+}).refine((o) => slanted(o, o.plane_axis), 'a window in a slanted wall (plane_axis "D") needs "dir"');
 var CeilingSchema = external_exports.looseObject({
   kind: external_exports.enum(["flat", "attic", "roof"]),
   z: num.optional(),
@@ -20183,6 +20425,7 @@ var RoomSchema = external_exports.looseObject({
   id,
   name: external_exports.string(),
   label: external_exports.string().optional(),
+  names: NamesSchema.optional(),
   level: id,
   floor_z: num,
   area: num,
@@ -20204,10 +20447,10 @@ var DoorSchema = external_exports.looseObject({
   level: id,
   rooms: external_exports.tuple([id, id]),
   floorZ: num,
-  opening: external_exports.looseObject({ along: external_exports.enum(["X", "Y"]), from: num, to: num, faces: external_exports.array(num).length(2), width: num, height: num }),
+  opening: external_exports.looseObject({ along: external_exports.enum(["X", "Y", "D"]), dir: vec2.optional(), from: num, to: num, faces: external_exports.array(num).length(2), width: num, height: num }).refine((o) => slanted(o, o.along), 'an opening in a slanted wall (along "D") needs "dir"'),
   leafWidth: num,
   height: num,
-  type: external_exports.enum(["hinged-single", "hinged-double", "sliding", "pocket"]),
+  type: external_exports.enum(["hinged-single", "hinged-double", "folding", "sliding", "pocket", "sectional"]),
   hinge: vec2.nullable(),
   closedDir: vec2.nullable(),
   openDir: vec2.nullable(),
@@ -20215,14 +20458,14 @@ var DoorSchema = external_exports.looseObject({
   swingInto: external_exports.string().nullable(),
   openAngle: num.nullable(),
   slide: external_exports.looseObject({ origin: vec2, dir: vec2, travel: num }).nullable(),
+  lift: external_exports.looseObject({ origin: vec2, dir: vec2, into: vec2 }).nullable().optional(),
   source: external_exports.array(external_exports.string()),
   confidence,
   notes: external_exports.string().optional(),
   flush: external_exports.boolean().optional()
 });
-var StairSchema = external_exports.looseObject({
+var stairCommon = {
   id,
-  kind: external_exports.literal("u-turn"),
   fromLevel: id,
   toLevel: id,
   bbox: external_exports.tuple([num, num, num, num]),
@@ -20230,16 +20473,34 @@ var StairSchema = external_exports.looseObject({
   riser: num,
   tread: num,
   flightWidth: num,
-  gap: num,
-  landingZ: num,
   topZ: num,
-  split: num,
   run: num,
-  landingEdge: num,
   confidence: external_exports.string(),
   note: external_exports.string().optional(),
   orient: external_exports.strictObject({ rotate: external_exports.union([external_exports.literal(0), external_exports.literal(90), external_exports.literal(180), external_exports.literal(270)]), mirror: external_exports.boolean() }).optional()
-});
+};
+var StairSchema = external_exports.discriminatedUnion("kind", [
+  external_exports.looseObject({ ...stairCommon, kind: external_exports.literal("straight") }),
+  external_exports.looseObject({ ...stairCommon, kind: external_exports.literal("l-turn"), upperRisers: external_exports.number().int().positive(), upperRun: num, landingZ: num }),
+  external_exports.looseObject({ ...stairCommon, kind: external_exports.literal("u-turn"), gap: num, landingZ: num, split: num, landingEdge: num })
+]);
+var FreeWallSchema = external_exports.looseObject({
+  id,
+  level: id,
+  a: vec2,
+  b: vec2,
+  thickness: num.positive(),
+  z0: num,
+  z1: num,
+  openings: external_exports.array(external_exports.looseObject({ id, t0: num, t1: num, z0: num, z1: num, infill: external_exports.looseObject({ kind: external_exports.literal("slats"), width: num.positive(), depth: num.positive(), gap: num.positive() }).optional() }))
+}).describe("a wall that bounds no room: axis a → b, thickness about it, bottom and top (absolute), openings along it");
+var PlatformSchema = external_exports.looseObject({
+  id,
+  level: id,
+  kind: external_exports.enum(["terrace", "steps"]),
+  bottom: num,
+  blocks: external_exports.array(external_exports.strictObject({ polygon: external_exports.array(vec2).min(3), top: num })).min(1)
+}).refine((p) => p.blocks.every((k) => k.top > p.bottom), "every block of a platform must stand above its bottom").describe("a terrace or steps outside the walls: plan blocks, each from the bottom (absolute) to its top");
 var rect = external_exports.tuple([num, num, num, num]);
 var PlaneSchema = external_exports.strictObject({ n: vec3, d: num }).refine((p) => p.n[2] > 1e-6, "a roof plane must face up (n[2] > 0)");
 var RoofSchema = external_exports.strictObject({
@@ -20322,6 +20583,8 @@ var ViewSchema = external_exports.looseObject({
   label: external_exports.string(),
   icon: external_exports.string(),
   hint: external_exports.string(),
+  labels: NamesSchema.optional(),
+  hints: NamesSchema.optional(),
   dir: vec3.optional(),
   pose: external_exports.looseObject({ position: vec3, target: vec3, fov: num }).optional(),
   fit: num.optional()
@@ -20330,6 +20593,8 @@ var ViewpointSchema = external_exports.looseObject({
   id,
   name: external_exports.string(),
   en: external_exports.string().optional(),
+  names: NamesSchema.optional(),
+  hints: NamesSchema.optional(),
   p: vec2,
   level: id,
   look: vec3,
@@ -20339,13 +20604,14 @@ var ViewpointSchema = external_exports.looseObject({
 var ManifestSchema = external_exports.strictObject({
   projectId: external_exports.string().regex(/^[a-z0-9][a-z0-9-]*$/, "lower-case letters, digits and hyphens"),
   name: external_exports.string().min(1),
+  names: NamesSchema.optional(),
   description: external_exports.string().optional(),
   documentTitle: external_exports.string().optional(),
   language: external_exports.string().optional(),
   units: external_exports.literal("m"),
   coordinateSystem: external_exports.strictObject({ name: external_exports.string(), description: external_exports.string(), up: external_exports.literal("Z"), handedness: external_exports.literal("right") }),
   buildingType: external_exports.enum(["house", "apartment"]),
-  levels: external_exports.array(external_exports.strictObject({ id, name: external_exports.string(), floorZ: num })).min(1),
+  levels: external_exports.array(external_exports.strictObject({ id, name: external_exports.string(), names: NamesSchema.optional(), floorZ: num })).min(1),
   dataSources: external_exports.record(external_exports.string(), external_exports.string()),
   modules: external_exports.array(external_exports.enum(["site", "environment", "sun", "stairs"])),
   capabilities: external_exports.array(external_exports.enum(["interiors", "electrical", "variants", "walk"])),
@@ -20366,6 +20632,8 @@ var ProjectSchema = external_exports.strictObject({
     doors: external_exports.array(DoorSchema),
     doorFacts: external_exports.strictObject({ overrides: external_exports.record(external_exports.string(), external_exports.looseObject({ flush: external_exports.boolean().optional(), source: external_exports.string() })).optional(), passableOpenings: external_exports.array(external_exports.string()).optional() }).optional(),
     stairs: external_exports.array(StairSchema).optional(),
+    walls: external_exports.array(FreeWallSchema).optional(),
+    platforms: external_exports.array(PlatformSchema).optional(),
     shell: external_exports.strictObject({ exteriorWall: num.positive().optional(), slab: num.positive().optional() }).optional(),
     roof: RoofSchema.optional()
   }),
@@ -20411,7 +20679,7 @@ var ProjectIndexSchema = external_exports.strictObject({
   schema: external_exports.literal("home-simulator/projects-index"),
   version: external_exports.literal(1),
   default: id,
-  projects: external_exports.array(external_exports.strictObject({ id, name: external_exports.string(), description: external_exports.string().optional(), dir: external_exports.string() }))
+  projects: external_exports.array(external_exports.strictObject({ id, name: external_exports.string(), names: NamesSchema.optional(), description: external_exports.string().optional(), dir: external_exports.string() }))
 });
 
 // packages/core/src/print/font5x7.ts
@@ -20779,19 +21047,20 @@ function encodePng(img, zlib3 = storedZlib) {
 }
 
 // packages/core/src/solid/frames.ts
-var FRAME_W = 0.06;
+var GLAZING_BAR = 0.06;
+var FRAME_W = GLAZING_BAR;
 var FRAME_D = 0.07;
 var GLASS_D = 0.024;
 var MULLION_OVER = 1.6;
 var add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 var mul = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
-var cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+var cross2 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 var dot2 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 var unit = (a) => {
   const l = Math.hypot(...a) || 1;
   return [a[0] / l, a[1] / l, a[2] / l];
 };
-var wallFrame = (w) => ({ o: [w.a[0], w.a[1], w.z0], u: [w.dir[0], w.dir[1], 0], v: [0, 0, 1], n: [w.out[0], w.out[1], 0], width: w.width, height: w.z1 - w.z0, depth: w.depth });
+var wallFrame = (w) => ({ o: [w.a[0], w.a[1], w.z0], u: [w.dir[0], w.dir[1], 0], v: [0, 0, 1], n: [w.out[0], w.out[1], 0], width: w.width, height: w.z1 - w.z0, depth: w.depth, ...w.outline ? { outline: w.outline } : {}, ...w.mullions ? { mullions: w.mullions } : {} });
 function boxQuads(o, ex, ey, ez) {
   const c = (s, t, u) => add(add(add(o, mul(ex, s)), mul(ey, t)), mul(ez, u));
   const centre = c(0.5, 0.5, 0.5);
@@ -20804,7 +21073,7 @@ function boxQuads(o, ex, ey, ez) {
     [c(0, 0, 1), c(1, 0, 1), c(1, 1, 1), c(0, 1, 1)]
   ];
   return faces.map((p) => {
-    const n = unit(cross([p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]], [p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]]));
+    const n = unit(cross2([p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]], [p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]]));
     const mid = mul(add(add(p[0], p[1]), add(p[2], p[3])), 0.25), outward = [mid[0] - centre[0], mid[1] - centre[1], mid[2] - centre[2]];
     return dot2(n, outward) >= 0 ? { p, n } : { p: [p[0], p[3], p[2], p[1]], n: mul(n, -1) };
   });
@@ -20824,7 +21093,64 @@ function bar(f, s0, s1, d0, d1, t0, t1) {
   const o = add(add(add(f.o, mul(f.u, s0)), mul(f.n, d0)), mul(f.v, t0));
   return boxQuads(o, mul(f.u, s1 - s0), mul(f.n, d1 - d0), mul(f.v, t1 - t0));
 }
+function spanAt(poly, axis, v) {
+  const o = 1 - axis, hits = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length];
+    if ((a[axis] - v) * (b[axis] - v) > 0 || a[axis] === b[axis]) continue;
+    hits.push(a[o] + (v - a[axis]) / (b[axis] - a[axis]) * (b[o] - a[o]));
+  }
+  return hits.length >= 2 ? [Math.min(...hits), Math.max(...hits)] : null;
+}
+function barQuads(f, inner, bars, w, d0, d1) {
+  const out = [], e = Math.min(5e-3, (d1 - d0) / 4);
+  for (const s of bars.at) {
+    const a = spanAt(inner, 0, s - w / 2), b = spanAt(inner, 0, s + w / 2);
+    if (!a || !b) continue;
+    const t0 = Math.max(a[0], b[0]), t1 = Math.min(a[1], b[1]);
+    if (t1 - t0 > w) out.push(...bar(f, s - w / 2, s + w / 2, d0 + e, d1 - e, t0, t1));
+  }
+  for (const r of bars.rows) {
+    const a = spanAt(inner, 1, r.t - w / 2), b = spanAt(inner, 1, r.t + w / 2);
+    if (!a || !b) continue;
+    const s0 = Math.max(a[0], b[0], r.s0 ?? -Infinity), s1 = Math.min(a[1], b[1], r.s1 ?? Infinity);
+    if (s1 - s0 > w) out.push(...bar(f, s0, s1, d0 + e, d1 - e, r.t - w / 2, r.t + w / 2));
+  }
+  return out;
+}
+function polygonParts(f, poly, bars = { at: f.mullions ?? [], rows: [] }) {
+  const area3 = poly.reduce((s, a, i) => {
+    const b = poly[(i + 1) % poly.length];
+    return s + a[0] * b[1] - b[0] * a[1];
+  }, 0);
+  const P = area3 < 0 ? [...poly].reverse() : poly, n = P.length;
+  const d0 = Math.max(0, (f.depth - FRAME_D) / 2), d1 = d0 + Math.min(FRAME_D, f.depth), w = Math.min(GLAZING_BAR, f.width / 4, f.height / 4);
+  const at2 = (s, t, d) => add(add(add(f.o, mul(f.u, s)), mul(f.v, t)), mul(f.n, d));
+  const frame = [];
+  for (let i = 0; i < n; i++) {
+    const a = P[i], b = P[(i + 1) % n], L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (L < 1e-6) continue;
+    const ins = [-(b[1] - a[1]) / L, (b[0] - a[0]) / L], e = at2(b[0], b[1], 0), o = at2(a[0], a[1], 0);
+    frame.push(...boxQuads(at2(a[0], a[1], d0), [e[0] - o[0], e[1] - o[1], e[2] - o[2]], add(mul(f.u, ins[0] * w), mul(f.v, ins[1] * w)), mul(f.n, d1 - d0)));
+  }
+  const inner = P.map((p, i) => {
+    const a = P[(i + n - 1) % n], c = P[(i + 1) % n], n1 = norm2([-(p[1] - a[1]), p[0] - a[0]]), n2 = norm2([-(c[1] - p[1]), c[0] - p[0]]), k = w / Math.max(0.3, 1 + n1[0] * n2[0] + n1[1] * n2[1]);
+    return [p[0] + (n1[0] + n2[0]) * k, p[1] + (n1[1] + n2[1]) * k];
+  });
+  frame.push(...barQuads(f, inner, bars, w, d0, d1));
+  const g0 = (d0 + d1) / 2 - GLASS_D / 2, g1 = g0 + GLASS_D, glass = [];
+  for (let i = 1; i + 1 < n; i++) for (const [d, flip] of [[g0, true], [g1, false]]) {
+    const q = [at2(inner[0][0], inner[0][1], d), at2(inner[i][0], inner[i][1], d), at2(inner[i + 1][0], inner[i + 1][1], d), at2(inner[i + 1][0], inner[i + 1][1], d)];
+    glass.push({ p: flip ? [q[0], q[3], q[2], q[1]] : q, n: flip ? mul(f.n, -1) : f.n });
+  }
+  return { frame, glass };
+}
+var norm2 = (a) => {
+  const l = Math.hypot(a[0], a[1]) || 1;
+  return [a[0] / l, a[1] / l];
+};
 function windowParts(f) {
+  if (f.outline && f.outline.length >= 3) return polygonParts(f, f.outline);
   const d0 = Math.max(0, (f.depth - FRAME_D) / 2), d1 = d0 + Math.min(FRAME_D, f.depth), w = Math.min(FRAME_W, f.width / 4, f.height / 4), W = f.width, H = f.height;
   const frame = [
     ...bar(f, 0, W, d0, d1, 0, w),
@@ -20836,9 +21162,41 @@ function windowParts(f) {
   const g0 = (d0 + d1) / 2 - GLASS_D / 2;
   return { frame, glass: bar(f, w, W - w, g0, g0 + GLASS_D, w, H - w) };
 }
-function windowMeshes(windows) {
-  const parts = windows.map((w) => windowParts("o" in w ? w : wallFrame(w)));
+function slatMeshes(walls) {
+  const quads = [];
+  for (const w of walls) {
+    const L = Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1]), u = [(w.b[0] - w.a[0]) / L, (w.b[1] - w.a[1]) / L, 0], n = [-u[1], u[0], 0];
+    for (const o of w.openings) {
+      const f = o.infill;
+      if (!f) continue;
+      const span2 = o.t1 - o.t0, count = Math.max(1, Math.floor((span2 + f.gap) / (f.width + f.gap))), used = count * f.width + (count - 1) * f.gap, s0 = o.t0 + (span2 - used) / 2;
+      const d = Math.min(f.depth, w.thickness);
+      for (let i = 0; i < count; i++) {
+        const s = s0 + i * (f.width + f.gap), o3 = [w.a[0] + u[0] * s - n[0] * d / 2, w.a[1] + u[1] * s - n[1] * d / 2, o.z0];
+        quads.push(...boxQuads(o3, mul(u, f.width), mul(n, d), [0, 0, o.z1 - o.z0]));
+      }
+    }
+  }
+  return toMesh(quads);
+}
+function windowMeshes(windows, opts = {}) {
+  const parts = windows.map((w) => {
+    const f = "o" in w ? w : wallFrame(w), p = windowParts(f);
+    return opts.polygonFrames === false && f.outline ? { frame: [], glass: p.glass } : p;
+  });
   return { frames: toMesh(parts.flatMap((p) => p.frame)), glass: toMesh(parts.flatMap((p) => p.glass)) };
+}
+function joinMeshes(a, b) {
+  if (!b.index.length) return a;
+  const nv = a.positions.length / 3, index = new Uint32Array(a.index.length + b.index.length);
+  index.set(a.index);
+  for (let i = 0; i < b.index.length; i++) index[a.index.length + i] = b.index[i] + nv;
+  const positions = new Float32Array(a.positions.length + b.positions.length), normals = new Float32Array(positions.length);
+  positions.set(a.positions);
+  positions.set(b.positions, a.positions.length);
+  normals.set(a.normals);
+  normals.set(b.normals, a.normals.length);
+  return { positions, normals, index };
 }
 
 // packages/core/src/solid/tags.ts
@@ -20851,8 +21209,9 @@ function roleOf(tag, n) {
   switch (tag.kind) {
     case "mass":
       return Math.abs(n[2]) < UP ? "elevation" : "slab";
+    // the edge of a slab is part of the façade (one plaster from the plinth to the eaves), its top and underside are the slab
     case "slab":
-      return "slab";
+      return Math.abs(n[2]) < UP ? "elevation" : "slab";
     case "room":
       return n[2] > UP ? "room-floor" : n[2] < DOWN ? "room-ceiling" : "room-wall";
     case "opening":
@@ -20861,8 +21220,9 @@ function roleOf(tag, n) {
       return "shaft";
     // the roof: its top is the covering, its edges are the fascia and the verges; its underside (the space below it) is the
     // ceiling of the rooms and the soffit of the eaves
+    // (the edge of a flat roof is the top of the façade below its parapet)
     case "roof":
-      return n[2] > COVER ? tag.flat ? "roof-flat" : "roof" : "eaves";
+      return n[2] > COVER ? tag.flat ? "roof-flat" : "roof" : tag.flat && Math.abs(n[2]) < UP ? "elevation" : "eaves";
     case "roof-space":
       return n[2] < DOWN ? "roof-underside" : n[2] > UP ? "slab" : "eaves";
     case "chimney":
@@ -20871,6 +21231,9 @@ function roleOf(tag, n) {
       return Math.abs(n[2]) < UP ? "elevation" : "slab";
     case "roof-window":
       return "reveal";
+    // a terrace or steps: the treads and the surface are a slab, the fronts and sides the plinth of the façade
+    case "platform":
+      return Math.abs(n[2]) < UP ? "elevation" : "slab";
   }
 }
 var TagTable = class {
@@ -21007,17 +21370,17 @@ function solidMesh(m, table) {
 // packages/core/src/solid/openings.ts
 var PROUD = 5e-3;
 var snap = (x) => round(x, 4);
-var inLoops = (p, loops) => {
+var inLoops = (p, loops2) => {
   let inside2 = false;
-  for (const poly of loops) for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+  for (const poly of loops2) for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const [xi, yi] = poly[i], [xj, yj] = poly[j];
     if (yi > p[1] !== yj > p[1] && p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi) inside2 = !inside2;
   }
   return inside2;
 };
-function rayHit(p, d, loops, tol = 1e-6) {
+function rayHit(p, d, loops2, tol = 1e-6) {
   let best = Infinity;
-  for (const poly of loops) for (let i = 0; i < poly.length; i++) {
+  for (const poly of loops2) for (let i = 0; i < poly.length; i++) {
     const c = poly[i], e = poly[(i + 1) % poly.length], ex = e[0] - c[0], ey = e[1] - c[1];
     const den = d[0] * ey - d[1] * ex;
     if (Math.abs(den) < 1e-12) continue;
@@ -21052,11 +21415,15 @@ function levelOpenings(rooms, mass, wallTop2) {
       if (z1 - z0 < 1e-3) continue;
       let box = null;
       if (!h.polygon && axisAligned(w)) {
-        const at = (t, d) => [snap(w.a[0] + w.dir[0] * t + out[0] * d), snap(w.a[1] + w.dir[1] * t + out[1] * d)];
-        const c = [at(h.t0, -PROUD), at(h.t1, -PROUD), at(h.t0, depth + PROUD), at(h.t1, depth + PROUD)];
+        const at2 = (t, d) => [snap(w.a[0] + w.dir[0] * t + out[0] * d), snap(w.a[1] + w.dir[1] * t + out[1] * d)];
+        const c = [at2(h.t0, -PROUD), at2(h.t1, -PROUD), at2(h.t0, depth + PROUD), at2(h.t1, depth + PROUD)];
         box = [Math.min(...c.map((q) => q[0])), Math.min(...c.map((q) => q[1])), Math.max(...c.map((q) => q[0])), Math.max(...c.map((q) => q[1]))];
       }
-      const key = box ? `${box.join(",")}|${z0},${z1}` : `${room.id}|${h.id}`;
+      const corners = () => {
+        const at2 = (t, d) => `${Math.round((w.a[0] + w.dir[0] * t + out[0] * d) * 1e3)},${Math.round((w.a[1] + w.dir[1] * t + out[1] * d) * 1e3)}`;
+        return [at2(h.t0, 0), at2(h.t1, 0), at2(h.t0, depth), at2(h.t1, depth)].sort().join(";");
+      };
+      const key = box ? `${box.join(",")}|${z0},${z1}` : !h.polygon && h.kind !== "window" && h.kind !== "glazing" ? `${corners()}|${z0},${z1}` : `${room.id}|${h.id}`;
       if (!seenCut.has(key)) {
         seenCut.add(key);
         cuts.push({ id: h.id, roomId: room.id, wallId: w.id, kind: h.kind, a: [snap(w.a[0]), snap(w.a[1])], dir: w.dir, out, outline, depth, box, z0, z1 });
@@ -21064,7 +21431,22 @@ function levelOpenings(rooms, mass, wallTop2) {
       if ((h.kind === "window" || h.kind === "glazing") && depth >= 0.02 && !seenWindow.has(h.id)) {
         seenWindow.add(h.id);
         const t0 = h.t0, t1 = h.t1;
-        windows.push({ id: h.id, roomId: room.id, wallId: w.id, kind: h.kind, a: [w.a[0] + w.dir[0] * t0, w.a[1] + w.dir[1] * t0], dir: w.dir, out, width: t1 - t0, z0: room.floorZ + h.z0, z1: Math.min(wallTop2, room.floorZ + h.z1), depth });
+        const z0w = room.floorZ + h.z0;
+        windows.push({
+          id: h.id,
+          roomId: room.id,
+          wallId: w.id,
+          kind: h.kind,
+          a: [w.a[0] + w.dir[0] * t0, w.a[1] + w.dir[1] * t0],
+          dir: w.dir,
+          out,
+          width: t1 - t0,
+          z0: z0w,
+          z1: Math.min(wallTop2, room.floorZ + h.z1),
+          depth,
+          ...h.polygon ? { outline: outline.map(([t, z2]) => [snap(t - t0), snap(z2 - z0w)]) } : {},
+          ...h.mullions ? { mullions: h.mullions.map((t) => snap(t - t0)) } : {}
+        });
       }
     }
   }
@@ -21108,9 +21490,9 @@ function roofSpace(geo, keep, pieces, which, lift, z0, z1) {
 function roofWindowsOf(b, level) {
   const pieces = b.roof?.byLevel(level) ?? [], th = b.roof?.thickness ?? 0, out = [];
   for (const room of roomsOfLevel(b, level)) for (const w of room.roofWindows) {
-    const [x0, y0, x1, y1] = w.rect, at = surfaceAt({ pieces, which: "inner" }, (x0 + x1) / 2, (y0 + y1) / 2);
-    if (!at) continue;
-    const P = at.plane, g = Math.hypot(P.gx, P.gy), l = Math.hypot(g, 1);
+    const [x0, y0, x1, y1] = w.rect, at2 = surfaceAt({ pieces, which: "inner" }, (x0 + x1) / 2, (y0 + y1) / 2);
+    if (!at2) continue;
+    const P = at2.plane, g = Math.hypot(P.gx, P.gy), l = Math.hypot(g, 1);
     if (g < 1e-9) continue;
     const n = [-P.gx / l, -P.gy / l, 1 / l], s = [P.gx / g, P.gy / g], h = [-s[1], s[0]];
     const plan = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], on = (q) => [q[0], q[1], planeZ(P, q[0], q[1])];
@@ -21164,10 +21546,13 @@ function roofSolid(geo, keep, b, level, z0, z1) {
     if (p.kind === "dormer") m = keep(m.subtract(belowPlanes(keep, prism(keep, keep(regionSection(geo, keep, p.cover).offset(PROUD, "Miter", 2)), z0 - 1, z1), p.planes)));
     solids.push(keep(tags.original(m, { kind: "roof", level, wingId: p.id, ...flat.has(p.id) ? { flat: true } : {} })));
   }
+  const floor = b.levelById.get(level)?.floorZ ?? 0;
+  const upper = b.levels.filter((l) => l.floorZ > floor + 0.01).flatMap((l) => roomsOfLevel(b, l.id).map((r) => r.polygon.map((q) => [snap(q[0]), snap(q[1])])));
+  const walls = upper.length ? keep(keep(new geo.CrossSection(upper)).offset(t, "Miter", 2)) : null;
   for (const part of roof.json.parts) {
     if (part.level !== level || !part.parapet) continue;
     const planes = pieces.find((p) => p.id === part.id).planes, outline = part.polygon ?? regionPolygon(part.rect), cs = regionSection(geo, keep, outline);
-    const ring = keep(cs.subtract(keep(cs.offset(-t, "Miter", 2)))), bottom = Math.min(...outline.flatMap((q) => planes.map((p) => planeZ(p, q[0], q[1]))));
+    const ring = keep(cs.subtract(keep((walls ? keep(cs.add(walls)) : cs).offset(-t, "Miter", 2)))), bottom = Math.min(...outline.flatMap((q) => planes.map((p) => planeZ(p, q[0], q[1]))));
     solids.push(keep(tags.original(prism(keep, ring, bottom + th / 2, parapetTop(b, planes, outline, part.parapet)), { kind: "parapet", level, wingId: part.id })));
   }
   for (const c of roof.json.chimneys ?? []) if (chimneyLevel(b, c) === level) solids.push(keep(tags.original(prism(keep, rectSection(geo, keep, c.rect), z0, c.top), { kind: "chimney", level, chimneyId: c.id })));
@@ -21200,1824 +21585,11 @@ function scoped(fn) {
   }
 }
 
-// packages/core/src/solid/levels.ts
-function wallTop(rooms, floorZ) {
-  let top = 0;
-  for (const r of rooms) top = Math.max(top, r.floorZ + r.ceiling.range()[1]);
-  return top > floorZ ? top : floorZ + 2.6;
-}
-var builtLevels = (b) => b.levels.filter((l) => roomsOfLevel(b, l.id).length);
-var nextBuilt = (b, level) => {
-  const L = builtLevels(b), i = L.findIndex((l) => l.id === level);
-  return L[i + 1] ?? null;
-};
-var grownRooms = (b, level) => roomsOfLevel(b, level).map((r) => offsetPolygon(r.polygon, b.shell.exteriorWall));
-function levelFrame(b, level) {
-  const i = b.levels.findIndex((l) => l.id === level), floor = b.levels[i]?.floorZ ?? 0, next = b.levels[i + 1], slab = b.shell.slab;
-  const pieces = roofPieces(b, level);
-  if (pieces.length) {
-    let under = -Infinity;
-    for (const p of grownRooms(b, level)) {
-      const r = surfaceRange({ pieces, which: "region" }, p);
-      if (r) under = Math.max(under, r[1]);
-    }
-    const up = nextBuilt(b, level), top2 = snap(Math.max(under, up ? up.floorZ - slab : -Infinity, floor + 0.01));
-    return { level, bottom: snap(floor - slab), floor, wallTop: top2, top: top2, last: !up, roofed: true };
-  }
-  const walls = wallTop(roomsOfLevel(b, level), floor);
-  if (!next) return { level, bottom: snap(floor - slab), floor, wallTop: snap(walls), top: snap(walls + slab), last: true, roofed: false };
-  const top = snap(Math.max(floor + 0.01, next.floorZ - slab));
-  return { level, bottom: snap(floor - slab), floor, wallTop: snap(Math.min(walls, top)), top, last: false, roofed: false };
-}
-function wallBounds(b) {
-  const levels = builtLevels(b), t = b.shell.exteriorWall;
-  if (!levels.length) return { min: [0, 0, 0], max: [1, 1, 1] };
-  const pts = levels.flatMap((l) => roomsOfLevel(b, l.id).flatMap((r) => r.polygon)), frames = levels.map((l) => levelFrame(b, l.id));
-  return {
-    min: [snap(Math.min(...pts.map((p) => p[0])) - t), snap(Math.min(...pts.map((p) => p[1])) - t), Math.min(...frames.map((f) => f.bottom))],
-    max: [snap(Math.max(...pts.map((p) => p[0])) + t), snap(Math.max(...pts.map((p) => p[1])) + t), Math.max(...frames.map((f) => f.top))]
-  };
-}
-function shellBounds(b) {
-  const w = wallBounds(b), r = roofBounds(b);
-  if (!r) return w;
-  return { min: [0, 1, 2].map((k) => snap(Math.min(w.min[k], r.min[k]))), max: [0, 1, 2].map((k) => snap(Math.max(w.max[k], r.max[k]))) };
-}
-var snap22 = (p) => [snap(p[0]), snap(p[1])];
-function cutterSolid(geo, keep, c) {
-  if (c.box) return prism(keep, rectSection(geo, keep, c.box), c.z0, c.z1);
-  const cs = keep(new geo.CrossSection([c.outline]));
-  const local = keep(cs.extrude(c.depth + 2 * PROUD));
-  return keep(local.transform([c.dir[0], c.dir[1], 0, 0, 0, 0, 1, 0, c.out[0], c.out[1], 0, 0, c.a[0] - c.out[0] * PROUD, c.a[1] - c.out[1] * PROUD, 0, 1]));
-}
-function dormerOpenings(b, rooms) {
-  const cuts = [], windows = [];
-  for (const d of b.roof?.json.dormers ?? []) {
-    const w = d.window, room = w && rooms.find((r) => r.id === w.roomId);
-    if (!w || !room) continue;
-    const [x0, y0, x1, y1] = d.rect, [i0, i1, i2, i3] = d.inner, alongX = d.front === "N" || d.front === "S";
-    const mid = alongX ? (i0 + i2) / 2 : (i1 + i3) / 2, half = w.width / 2;
-    const out = d.front === "N" ? [0, 1] : d.front === "S" ? [0, -1] : d.front === "E" ? [1, 0] : [-1, 0];
-    const face = d.front === "N" ? i3 : d.front === "S" ? i1 : d.front === "E" ? i2 : i0, outer = d.front === "N" ? y1 : d.front === "S" ? y0 : d.front === "E" ? x1 : x0;
-    const dir = [-out[1] || 0, out[0] || 0], depth = snap(Math.abs(outer - face)), t0 = mid - half;
-    const a = alongX ? [dir[0] > 0 ? t0 : t0 + w.width, face] : [face, dir[1] > 0 ? t0 : t0 + w.width];
-    const box = alongX ? [snap(t0), snap(Math.min(face, outer) - PROUD), snap(t0 + w.width), snap(Math.max(face, outer) + PROUD)] : [snap(Math.min(face, outer) - PROUD), snap(t0), snap(Math.max(face, outer) + PROUD), snap(t0 + w.width)];
-    const z0 = snap(w.sill_z), z1 = snap(w.head_z);
-    cuts.push({ id: w.id, roomId: room.id, wallId: `${d.id}-front`, kind: "window", a: snap22(a), dir, out, outline: [[0, z0], [w.width, z0], [w.width, z1], [0, z1]], depth, box, z0, z1 });
-    windows.push({ id: w.id, roomId: room.id, wallId: `${d.id}-front`, kind: "window", a, dir, out, width: w.width, z0, z1, depth });
-  }
-  return { cuts, windows };
-}
-function span(b) {
-  const s = shellBounds(b);
-  return [snap(s.min[2] - 1), snap(s.max[2] + 1)];
-}
-function levelSolid(geo, keep, b, level, opts = {}) {
-  const rooms = roomsOfLevel(b, level);
-  if (!rooms.length) return null;
-  const { Manifold, CrossSection } = geo, frame = levelFrame(b, level), tags = new TagTable(), t = b.shell.exteriorWall;
-  const outlines = rooms.map((r) => r.polygon.map(snap22));
-  const footprint = keep(keep(new CrossSection(outlines)).offset(t, "Miter", 2));
-  const plan = { footprint: footprint.toPolygons().map((p) => p.map((q) => [q[0], q[1]])), rooms: outlines };
-  const roomSection = (i) => keep(new CrossSection([outlines[i]]));
-  const mass = [keep(tags.original(prism(keep, footprint, frame.bottom, frame.floor), { kind: "slab", level }))];
-  const voids = [];
-  let cap = null;
-  if (frame.roofed) {
-    const pieces = roofPieces(b, level), [lo, hi] = span(b), up = nextBuilt(b, level), slab = b.shell.slab;
-    const o = opts.roofOverlap ?? 0;
-    const space = roofSpace(geo, keep, pieces, "region", o, lo, hi), spaceUp = roofSpace(geo, keep, pieces, "inner", PROUD + o, lo, hi);
-    const nextFp = up ? keep(keep(new CrossSection(roomsOfLevel(b, up.id).map((r) => r.polygon.map(snap22)))).offset(t, "Miter", 2)) : null;
-    const nextTop = up ? snap(up.floorZ - slab) : 0;
-    cap = nextFp ? keep(Manifold.union(space, prism(keep, nextFp, lo, nextTop))) : space;
-    mass.push(keep(tags.original(keep(prism(keep, footprint, frame.floor, hi).intersect(cap)), { kind: "mass", level })));
-    rooms.forEach((r, i) => {
-      const parts = [keep(prism(keep, roomSection(i), snap(r.floorZ), snap(r.ceiling.flatZ)).intersect(spaceUp))];
-      if (nextFp) parts.push(prism(keep, keep(roomSection(i).intersect(nextFp)), snap(r.floorZ), snap(nextTop + PROUD)));
-      voids.push(keep(tags.original(keep(Manifold.union(parts)), { kind: "room", level, roomId: r.id })));
-    });
-  } else {
-    mass.push(keep(tags.original(prism(keep, footprint, frame.floor, frame.last ? frame.wallTop : frame.top), { kind: "mass", level })));
-    if (frame.last) mass.push(keep(tags.original(prism(keep, footprint, frame.wallTop, frame.top), { kind: "slab", level })));
-    const roomTop = frame.last ? frame.wallTop : frame.top + PROUD;
-    rooms.forEach((r, i) => voids.push(keep(tags.original(prism(keep, roomSection(i), snap(r.floorZ), roomTop), { kind: "room", level, roomId: r.id }))));
-  }
-  const openings = levelOpenings(rooms, plan, frame.wallTop), dormers = dormerOpenings(b, rooms);
-  const cuts = [...openings.cuts, ...dormers.cuts], windows = [...openings.windows, ...dormers.windows];
-  for (const c of cuts) voids.push(keep(tags.original(cutterSolid(geo, keep, c), { kind: "opening", level, roomId: c.roomId, holeId: c.id, wallId: c.wallId })));
-  if (stairArrivesAt(b, level)) {
-    const stairId = b.stairs.find((s) => s.toLevel === level)?.id;
-    for (const r of rooms) if (r.stairOpening) {
-      const box = rectSection(geo, keep, r.stairOpening.map(snap));
-      voids.push(keep(tags.original(prism(keep, box, snap(frame.bottom - PROUD), snap(frame.floor + PROUD)), { kind: "shaft", level, roomId: r.id, stairId })));
-    }
-  }
-  let solid = keep(keep(Manifold.union(mass)).subtract(keep(Manifold.union(voids))));
-  const grown = grownRooms(b, level), chimneys = [];
-  for (const c of b.roof?.json.chimneys ?? []) {
-    const x = (c.rect[0] + c.rect[2]) / 2, y = (c.rect[1] + c.rect[3]) / 2;
-    if (c.bottom > frame.top - 0.01 || !grown.some((p) => inRegion(p, x, y))) continue;
-    const box = prism(keep, rectSection(geo, keep, c.rect.map(snap)), snap(Math.max(c.bottom, frame.bottom)), cap ? span(b)[1] : frame.top);
-    chimneys.push(keep(tags.original(cap ? keep(box.intersect(cap)) : box, { kind: "chimney", level, chimneyId: c.id })));
-  }
-  if (chimneys.length) solid = keep(Manifold.union([solid, ...chimneys]));
-  const status = solid.status();
-  if (status !== "NoError") throw new Error(`solid of level ${level}: ${status}`);
-  return { frame, solid, tags, plan, cuts, windows };
-}
-var meshes = /* @__PURE__ */ new WeakMap();
-function shellMeshes(geo, b) {
-  const hit = meshes.get(b);
-  if (hit) return hit;
-  const t0 = Date.now();
-  const out = scoped((keep) => {
-    const levels = builtLevels(b).map((l) => {
-      const s = levelSolid(geo, keep, b, l.id), box = s.solid.boundingBox(), w = windowMeshes(s.windows);
-      return { level: l.id, frame: s.frame, solid: solidMesh(s.solid, s.tags), frames: w.frames, glass: w.glass, windows: s.windows, bounds: { min: [...box.min], max: [...box.max] }, volume: s.solid.volume() };
-    });
-    const [lo, hi] = span(b);
-    const roofs = (b.roof?.levels ?? []).flatMap((level) => {
-      const r = roofSolid(geo, keep, b, level, lo, hi);
-      if (!r) return [];
-      const box = r.solid.boundingBox(), w = windowMeshes(r.windows.map((x) => x.frame));
-      return [{ level, solid: solidMesh(r.solid, r.tags), frames: w.frames, glass: w.glass, windows: r.windows, bounds: { min: [...box.min], max: [...box.max] }, volume: r.solid.volume() }];
-    });
-    return { levels, roofs };
-  });
-  const triangles = [...out.levels, ...out.roofs].reduce((n, l) => n + l.solid.index.length / 3, 0);
-  const res = { ...out, triangles, ms: Date.now() - t0 };
-  meshes.set(b, res);
-  return res;
-}
-
-// packages/core/src/preview/exterior.ts
-var WALL = [228, 224, 214];
-var ROOF = [176, 92, 74];
-var CHIMNEY = [150, 150, 146];
-var GLASS = [150, 186, 222];
-var FRAME = [246, 246, 244];
-var ROOF_ROLES = /* @__PURE__ */ new Set(["roof", "roof-flat", "eaves", "roof-underside"]);
-function byRole(m) {
-  const groups = /* @__PURE__ */ new Map();
-  for (let t = 0; t < m.role.length; t++) {
-    const role = ROLES[m.role[t]], c = ROOF_ROLES.has(role) ? ROOF : role === "chimney" ? CHIMNEY : WALL;
-    let g = groups.get(c);
-    if (!g) groups.set(c, g = []);
-    g.push(m.index[t * 3], m.index[t * 3 + 1], m.index[t * 3 + 2]);
-  }
-  return [...groups].map(([color, idx]) => ({ positions: m.positions, index: new Uint32Array(idx), color }));
-}
-function exteriorImage(geo, data, o) {
-  const s = shellMeshes(geo, building(data)), W = 1440, H = 600, head = 34, img = image(W, head + H, [250, 250, 248]);
-  const meshes2 = [];
-  for (const l of [...s.levels, ...s.roofs]) {
-    meshes2.push(...byRole(l.solid));
-    if (l.frames.index.length) meshes2.push({ positions: l.frames.positions, index: l.frames.index, color: FRAME });
-    if (l.glass.index.length) meshes2.push({ positions: l.glass.positions, index: l.glass.index, color: GLASS });
-  }
-  drawMeshes(img, 0, head, W / 2, H, meshes2, { azimuth: -125, elevation: 24 }, 24);
-  drawMeshes(img, W / 2, head, W / 2, H, meshes2, { azimuth: 55, elevation: 24 }, 24);
-  fillRect(img, W / 2, head + 20, 1, H - 40, [220, 222, 226]);
-  let t = o.title;
-  while (t.length > 1 && textWidth(t, 2) > W - 16) t = t.slice(0, -1);
-  text(img, 8, 8, t, 2, [33, 37, 45]);
-  return img;
-}
-
-// packages/core/src/preview/plan.ts
-var PLAN_LABELS = {
-  planTitle: "{name} · {level} ({id}) · 1 grid = 1 m · +X right, +Y up",
-  roofTitle: "{name} · roof plan · top {top} m · red: ridges and hips, blue: valleys · 1 grid = 1 m",
-  printed: "plan {area}",
-  up: "up",
-  down: "down"
-};
-var SS = 2;
-var HEAD = 34;
-var BG = [249, 250, 251];
-var GRID = [229, 231, 235];
-var GRID_TEXT = [156, 163, 175];
-var INK = [17, 24, 39];
-var WALL2 = [55, 65, 81];
-var WHITE = [255, 255, 255];
-var MUTED = [55, 65, 81];
-var DOOR = [220, 38, 38];
-var DOOR_TEXT = [185, 28, 28];
-var GLASS2 = [191, 219, 254];
-var GLASS_DOOR = [147, 197, 253];
-var BLUE = [37, 99, 235];
-var BLUE_TEXT = [29, 78, 216];
-var STAIR = [254, 243, 199];
-var STAIR_LINE = [217, 119, 6];
-var STAIR_EDGE = [180, 83, 9];
-var STAIR_TEXT = [146, 64, 14];
-var HEIGHT_LINE = [124, 58, 237];
-var HEIGHT_TEXT = [109, 40, 217];
-var sub2 = (s, v) => s.replace(/\{(\w+)\}/g, (_, k) => String(v[k] ?? ""));
-var fmt2 = (x) => (Math.round(x * 100) / 100).toString();
-var Sheet = class {
-  big;
-  labels = [];
-  W;
-  H;
-  x0;
-  y0;
-  x1;
-  y1;
-  S;
-  constructor(x0, y0, x1, y1, S) {
-    this.x0 = x0;
-    this.y0 = y0;
-    this.x1 = x1;
-    this.y1 = y1;
-    this.S = S;
-    this.W = Math.round((x1 - x0) * S);
-    this.H = Math.round((y1 - y0) * S) + HEAD;
-    this.big = image(this.W * SS, this.H * SS, BG);
-  }
-  /** final-image pixel of a plan point */
-  px = (p) => [(p[0] - this.x0) * this.S, (this.y1 - p[1]) * this.S + HEAD];
-  big2 = (p) => {
-    const q = this.px(p);
-    return [q[0] * SS, q[1] * SS];
-  };
-  poly(pts, c, alpha = 1) {
-    fillPolygon(this.big, [pts.map(this.big2)], c, alpha);
-  }
-  polys(rings, c) {
-    fillPolygon(this.big, rings.map((r) => r.map(this.big2)), c);
-  }
-  /** a line `w` final pixels wide */
-  seg(a, b, c, w = 1, dash) {
-    const p = this.big2(a), q = this.big2(b);
-    line(this.big, p[0], p[1], q[0], q[1], c, w * SS, dash && [dash[0] * SS, dash[1] * SS]);
-  }
-  outline(pts, c, w = 1, dash) {
-    polyline(this.big, pts.map(this.big2), c, w * SS, true, dash && [dash[0] * SS, dash[1] * SS]);
-  }
-  label(p, s, scale, c, anchor2 = "middle", dx = 0, dy = 0, box = false) {
-    const [x, y] = this.px(p);
-    this.labels.push({ x: x + dx, y: y + dy, s, scale, c, anchor: anchor2, box });
-  }
-  /** the 1 m grid with its coordinates on the top and left margins */
-  grid() {
-    for (let x = Math.ceil(this.x0); x <= this.x1; x++) {
-      this.seg([x, this.y0], [x, this.y1], GRID);
-      this.label([x, this.y1], String(x), 1, GRID_TEXT, "middle", 0, 3);
-    }
-    for (let y = Math.ceil(this.y0); y <= this.y1; y++) {
-      this.seg([this.x0, y], [this.x1, y], GRID);
-      this.label([this.x0, y], String(y), 1, GRID_TEXT, "start", 3, -12);
-    }
-  }
-  finish(title) {
-    const img = shrink(this.big, SS);
-    fillRect(img, 0, 0, img.width, HEAD - 6, BG);
-    for (const l of this.labels) {
-      const w = textWidth(l.s, l.scale), x = Math.round(l.anchor === "middle" ? l.x - w / 2 : l.x), y = Math.round(l.y);
-      if (l.box) fillRect(img, x - 3, y - 2, w + 4, 11 * l.scale + 2, WHITE);
-      text(img, x, y, l.s, l.scale, l.c);
-    }
-    text(img, 8, 8, fit(title, img.width - 16, 2), 2, INK);
-    return img;
-  }
-};
-function fit(s, width, scale) {
-  if (textWidth(s, scale) <= width) return s;
-  let t = s;
-  while (t.length > 1 && textWidth(`${t}...`, scale) > width) t = t.slice(0, -1);
-  return `${t}...`;
-}
-var scaleFor = (w, h) => Math.min(1600 / w, 1200 / h);
-function grow(poly, d) {
-  const n = poly.length, area22 = poly.reduce((s, a, i) => {
-    const b = poly[(i + 1) % n];
-    return s + a[0] * b[1] - b[0] * a[1];
-  }, 0), k = area22 >= 0 ? 1 : -1;
-  const normal = (a, b) => {
-    const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
-    return [k * dy / l, -k * dx / l];
-  };
-  return poly.map((p, i) => {
-    const n0 = normal(poly[(i - 1 + n) % n], p), n1 = normal(p, poly[(i + 1) % n]);
-    return [p[0] + d * (n0[0] + n1[0]), p[1] + d * (n0[1] + n1[1])];
-  });
-}
-var inside = (p, poly) => {
-  let c = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const a = poly[i], b = poly[j];
-    if (a[1] > p[1] !== b[1] > p[1] && p[0] < (b[0] - a[0]) * (p[1] - a[1]) / (b[1] - a[1]) + a[0]) c = !c;
-  }
-  return c;
-};
-function labelPoint(poly) {
-  const xs = [...new Set(poly.map((p) => p[0]))].sort((a, b) => a - b), ys = [...new Set(poly.map((p) => p[1]))].sort((a, b) => a - b);
-  let best = null;
-  for (let i = 0; i < xs.length - 1; i++) for (let j = i + 1; j < xs.length; j++) for (let u = 0; u < ys.length - 1; u++) for (let v = u + 1; v < ys.length; v++) {
-    const size = Math.min(xs[j] - xs[i], ys[v] - ys[u]);
-    if (best && size <= best.size) continue;
-    let ok = true;
-    for (let a = i; a < j && ok; a++) for (let b = u; b < v && ok; b++) ok = inside([(xs[a] + xs[a + 1]) / 2, (ys[b] + ys[b + 1]) / 2], poly);
-    if (ok) best = { size, p: [(xs[i] + xs[j]) / 2, (ys[u] + ys[v]) / 2] };
-  }
-  return best?.p ?? poly[0];
-}
-var rect2 = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
-function planImage(data, levelId, o) {
-  const L = { ...PLAN_LABELS, ...o.labels }, B = building(data);
-  const rooms = data.rooms.rooms.filter((r) => r.level === levelId);
-  const polys = rooms.map((r) => r.polygon.map((p) => [p[0], p[1]]));
-  const xs = polys.flat().map((p) => p[0]), ys = polys.flat().map((p) => p[1]);
-  const ext = B.shell.exteriorWall, m = ext + 0.8;
-  if (!xs.length) xs.push(0, 1), ys.push(0, 1);
-  const x0 = Math.min(...xs) - m, y0 = Math.min(...ys) - m, x1 = Math.max(...xs) + m, y1 = Math.max(...ys) + m;
-  const sh = new Sheet(x0, y0, x1, y1, scaleFor(x1 - x0, y1 - y0));
-  sh.grid();
-  for (const p of polys) sh.poly(grow(p, ext), WALL2);
-  for (const p of polys) {
-    sh.poly(p, WHITE);
-    sh.outline(p, INK);
-  }
-  for (const r of rooms) {
-    for (const d of r.doors) {
-      const [a, b] = d.across;
-      sh.poly(d.along === "X" ? rect2(d.from_, Math.min(a, b), d.to, Math.max(a, b)) : rect2(Math.min(a, b), d.from_, Math.max(a, b), d.to), WHITE);
-    }
-    for (const w of r.openings) {
-      const t = 0.18, inner = w.inner, out = r.polygon.some((p) => (w.plane_axis === "Y" ? p[1] : p[0]) > inner + 0.01) ? -1 : 1;
-      const lo = Math.min(w.from_, w.to), hi = Math.max(w.from_, w.to), e = inner + out * t;
-      const poly = w.plane_axis === "Y" ? rect2(lo, Math.min(inner, e), hi, Math.max(inner, e)) : rect2(Math.min(inner, e), lo, Math.max(inner, e), hi);
-      sh.poly(poly, (w.sill_z ?? 0) < 0.05 ? GLASS_DOOR : GLASS2);
-      sh.outline(poly, BLUE);
-      const at = w.plane_axis === "Y" ? [(lo + hi) / 2, inner] : [inner, (lo + hi) / 2];
-      sh.label(at, w.id, 1, BLUE_TEXT, "middle", 0, out > 0 ? -14 : 4);
-    }
-  }
-  for (const s of B.stairs) if (s.fromLevel === levelId || s.toLevel === levelId) {
-    const [sx0, sy0, sx1, sy1] = s.bbox, r = s.orient?.rotate ?? 0, mir = !!s.orient?.mirror;
-    const [cw, cd] = r % 180 ? [sy1 - sy0, sx1 - sx0] : [sx1 - sx0, sy1 - sy0];
-    const W = ([qx, qy]) => {
-      const cx = mir ? cw - (qx - sx0) : qx - sx0, cy = qy - sy0;
-      const [ux, uy] = r === 0 ? [cx, cy] : r === 90 ? [cd - cy, cx] : r === 180 ? [cw - cx, cd - cy] : [cy, cw - cx];
-      return [sx0 + ux, sy0 + uy];
-    };
-    const cx1 = sx0 + cw, cy1 = sy0 + cd, le = s.landingEdge, T = s.tread;
-    const box = rect2(sx0, sy0, sx1, sy1);
-    sh.poly(box, STAIR);
-    sh.outline(box, STAIR_EDGE);
-    for (let i = 1; i < s.risers; i++) {
-      sh.seg(W([s.split, cy1 - i * T]), W([cx1, cy1 - i * T]), STAIR_LINE);
-      sh.seg(W([sx0, le + (i - 1) * T]), W([s.split, le + (i - 1) * T]), STAIR_LINE);
-    }
-    sh.seg(W([s.split, le]), W([s.split, cy1]), STAIR_EDGE);
-    const mid = (s.split + cx1) / 2;
-    sh.seg(W([mid, cy1 - 0.1]), W([mid, le + 0.15]), STAIR_TEXT, 2);
-    sh.poly([W([mid, le + 0.05]), W([mid - 0.12, le + 0.25]), W([mid + 0.12, le + 0.25])], STAIR_TEXT);
-    sh.label(W([(sx0 + s.split) / 2, (le + cy1) / 2]), `${s.id} ${s.fromLevel === levelId ? L.up : L.down}`, 1, STAIR_TEXT, "middle", 0, -5, true);
-  }
-  for (const r of rooms) {
-    const c = B.roomById.get(r.id)?.ceiling;
-    if (c && c.kind !== "flat") for (const h of [1.4, 2.2]) {
-      let at = null;
-      for (const f of c.facets()) {
-        const seg = contourOf(f, r.floor_z + h);
-        if (!seg) continue;
-        sh.seg(seg[0], seg[1], HEIGHT_LINE, 1, [6, 4]);
-        at ??= seg[0];
-      }
-      if (at) sh.label(at, String(Math.round(h * 100)), 1, HEIGHT_TEXT, "start", 3, -13);
-    }
-    for (const w of r.roof_windows ?? []) {
-      const [a, b, cx, d] = w.plan_rect, box = rect2(a, b, cx, d);
-      sh.poly(box, [219, 234, 254]);
-      sh.outline(box, BLUE, 1, [3, 2]);
-      sh.label([(a + cx) / 2, (b + d) / 2], w.id, 1, BLUE_TEXT, "middle", 0, -5);
-    }
-  }
-  for (const d of B.doors.filter((x) => x.level === levelId)) {
-    if (d.hinge && d.closedDir && d.openDir) {
-      const Lw = d.leafWidth, h = d.hinge, op = [h[0] + d.openDir[0] * Lw, h[1] + d.openDir[1] * Lw];
-      sh.seg(h, op, DOOR, 2);
-      const a0 = Math.atan2(d.closedDir[1], d.closedDir[0]), a1 = Math.atan2(d.openDir[1], d.openDir[0]);
-      let da = a1 - a0;
-      while (da > Math.PI) da -= 2 * Math.PI;
-      while (da < -Math.PI) da += 2 * Math.PI;
-      const arc = [];
-      for (let i = 0; i <= 16; i++) {
-        const a = a0 + da * i / 16;
-        arc.push([h[0] + Math.cos(a) * Lw, h[1] + Math.sin(a) * Lw]);
-      }
-      for (let i = 0; i < 16; i += 2) sh.seg(arc[i], arc[i + 1], DOOR);
-      sh.label(op, d.id, 1, DOOR_TEXT, "start", 4, -5);
-    } else if (d.slide) {
-      const s = d.slide.origin, e = [s[0] + d.slide.dir[0] * d.leafWidth, s[1] + d.slide.dir[1] * d.leafWidth];
-      sh.seg(s, e, DOOR, 3);
-      sh.label(e, `${d.id} ↔`, 1, DOOR_TEXT, "start", 4, -5);
-    }
-  }
-  for (const r of rooms) {
-    const p = labelPoint(r.polygon.map((q) => [q[0], q[1]]));
-    sh.label(p, r.id, 2, INK, "middle", 0, -20, true);
-    sh.label(p, `${r.name} · ${fmt2(r.area)} m²${r.area_data !== r.area ? ` (${sub2(L.printed, { area: fmt2(r.area_data) })})` : ""}`, 1, MUTED, "middle", 0, 6, true);
-  }
-  const level = data.rooms.levels[levelId]?.name ?? levelId;
-  return sh.finish(sub2(L.planTitle, { name: o.name, level, id: levelId }));
-}
-function roofImage(data, o) {
-  const L = { ...PLAN_LABELS, ...o.labels }, B = building(data), roof = B.roof;
-  if (!roof?.pieces.length) return null;
-  const boxes = roof.pieces.map((p) => regionBox(p.cover)), m = 1;
-  const x0 = Math.min(...boxes.map((b) => b[0])) - m, y0 = Math.min(...boxes.map((b) => b[1])) - m, x1 = Math.max(...boxes.map((b) => b[2])) + m, y1 = Math.max(...boxes.map((b) => b[3])) + m;
-  const sh = new Sheet(x0, y0, x1, y1, scaleFor(x1 - x0, y1 - y0));
-  sh.grid();
-  const same = (a, b) => Math.abs(a.gx - b.gx) < 1e-9 && Math.abs(a.gy - b.gy) < 1e-9 && Math.abs(a.z0 - b.z0) < 1e-6;
-  const levels = [...roof.levels].sort((a, b) => B.levelById.get(a).floorZ - B.levelById.get(b).floorZ), lines = [];
-  let top = -Infinity;
-  for (const level of levels) {
-    const s = { pieces: roof.byLevel(level), which: "cover", lift: roof.thickness };
-    for (const f of surfaceFacets(s, rect2(x0, y0, x1, y1))) {
-      const p = f.plane, l = Math.hypot(p.gx, p.gy, 1), light = Math.max(0, (p.gx * 0.45 + p.gy * 0.45 + 0.77) / l), flat = Math.hypot(p.gx, p.gy) < 0.09;
-      const c = flat ? [150, 150, 146] : [140, 82, 70], k = 0.55 + 0.6 * light;
-      sh.poly(f.polygon, c.map((v) => Math.min(255, Math.round(v * k))));
-      for (const q of f.polygon) top = Math.max(top, planeZ(p, q[0], q[1]));
-      for (let i = 0; i < f.polygon.length; i++) {
-        const a = f.polygon[i], b = f.polygon[(i + 1) % f.polygon.length], len2 = Math.hypot(b[0] - a[0], b[1] - a[1]);
-        if (len2 < 1e-6) continue;
-        const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], n = [(b[1] - a[1]) / len2, -(b[0] - a[0]) / len2], q = [mid[0] + n[0] * 1e-3, mid[1] + n[1] * 1e-3], other2 = surfaceAt(s, q[0], q[1]);
-        if (!other2 || Math.abs(planeZ(p, mid[0], mid[1]) - planeZ(other2.plane, mid[0], mid[1])) > 0.01) lines.push([a, b, [31, 41, 55], 2]);
-        else if (!same(other2.plane, p)) lines.push([a, b, planeZ(p, q[0], q[1]) > other2.z + 1e-6 ? [127, 29, 29] : [29, 78, 216], 2]);
-      }
-    }
-  }
-  for (const [a, b, c, w] of lines) sh.seg(a, b, c, w);
-  for (const r of data.rooms.rooms) sh.outline(grow(r.polygon.map((p) => [p[0], p[1]]), B.shell.exteriorWall), [107, 114, 128], 1, [4, 4]);
-  for (const d of roof.json.dormers ?? []) {
-    sh.outline(rect2(d.rect[0], d.rect[1], d.rect[2], d.rect[3]), [245, 158, 11], 2);
-    sh.label([(d.rect[0] + d.rect[2]) / 2, (d.rect[1] + d.rect[3]) / 2], `${d.id} (${d.type}, ${d.front})`, 1, STAIR_TEXT, "middle", 0, -5, true);
-  }
-  for (const c of roof.json.chimneys ?? []) {
-    const box = rect2(c.rect[0], c.rect[1], c.rect[2], c.rect[3]);
-    sh.poly(box, [107, 114, 128]);
-    sh.outline(box, INK);
-    sh.label([c.rect[2], c.rect[3]], `${c.id} ${c.top} m`, 1, INK, "start", 4, -5, true);
-  }
-  for (const r of data.rooms.rooms) for (const w of r.roof_windows ?? []) {
-    const [a, b, c, d] = w.plan_rect, box = rect2(a, b, c, d);
-    sh.poly(box, GLASS2);
-    sh.outline(box, BLUE);
-    sh.label([(a + c) / 2, (b + d) / 2], w.id, 1, BLUE_TEXT, "middle", 0, -5);
-  }
-  for (const p of roof.json.parts) {
-    const poly = p.polygon ?? regionPolygon(p.rect), cx = poly.reduce((u, q) => u + q[0], 0) / poly.length, cy = poly.reduce((u, q) => u + q[1], 0) / poly.length;
-    sh.label([cx, cy], `${p.id}: ${p.type}${p.pitch !== void 0 ? ` ${p.pitch}°` : ""} (${p.level})`, 2, INK, "middle", 0, -11, true);
-  }
-  return sh.finish(sub2(L.roofTitle, { name: o.name, top: top.toFixed(2) }));
-}
-
-// packages/core/src/print/printers.ts
-var PRINTERS = [
-  { maker: "Creality", model: "K1", x: 220, y: 220, z: 250 },
-  { maker: "Creality", model: "K1C", x: 220, y: 220, z: 250 },
-  { maker: "Creality", model: "K1 SE", x: 220, y: 220, z: 250 },
-  { maker: "Creality", model: "K1 Max", x: 300, y: 300, z: 300 },
-  { maker: "Creality", model: "K2 Plus", x: 350, y: 350, z: 350 },
-  { maker: "Creality", model: "Ender-3", x: 220, y: 220, z: 250, note: "also Pro, V2, Neo" },
-  { maker: "Creality", model: "Ender-3 V2", x: 220, y: 220, z: 250 },
-  { maker: "Creality", model: "Ender-3 V3 SE", x: 220, y: 220, z: 250 },
-  { maker: "Creality", model: "Ender-3 V3 KE", x: 220, y: 220, z: 240 },
-  { maker: "Creality", model: "Ender-3 V3", x: 220, y: 220, z: 250 },
-  { maker: "Creality", model: "Ender-3 S1", x: 220, y: 220, z: 270, note: "also S1 Pro" },
-  { maker: "Creality", model: "Ender-3 Max", x: 300, y: 300, z: 340 },
-  { maker: "Creality", model: "Ender-5", x: 220, y: 220, z: 300, note: "also Pro" },
-  { maker: "Creality", model: "Ender-5 S1", x: 220, y: 220, z: 280 },
-  { maker: "Creality", model: "Ender-5 Plus", x: 350, y: 350, z: 400 },
-  { maker: "Creality", model: "CR-10", x: 300, y: 300, z: 400, note: "also V2, V3, Smart" },
-  { maker: "Creality", model: "CR-10 SE", x: 220, y: 220, z: 265 },
-  { maker: "Creality", model: "Hi", x: 260, y: 260, z: 300 },
-  { maker: "Bambu Lab", model: "A1 mini", x: 180, y: 180, z: 180 },
-  { maker: "Bambu Lab", model: "A1", x: 256, y: 256, z: 256 },
-  { maker: "Bambu Lab", model: "P1P", x: 256, y: 256, z: 256 },
-  { maker: "Bambu Lab", model: "P1S", x: 256, y: 256, z: 256 },
-  { maker: "Bambu Lab", model: "P2S", x: 256, y: 256, z: 256 },
-  { maker: "Bambu Lab", model: "X1C", x: 256, y: 256, z: 256, note: "also X1, X1E" },
-  { maker: "Bambu Lab", model: "H2D", x: 350, y: 320, z: 325, note: "less in X with two nozzles" },
-  { maker: "Bambu Lab", model: "H2S", x: 340, y: 320, z: 325 },
-  { maker: "Prusa", model: "MINI", x: 180, y: 180, z: 180, note: "also MINI+" },
-  { maker: "Prusa", model: "MK3S", x: 250, y: 210, z: 210, note: "also MK3S+" },
-  { maker: "Prusa", model: "MK4", x: 250, y: 210, z: 220, note: "also MK4S, MK3.5" },
-  { maker: "Prusa", model: "Core One", x: 250, y: 220, z: 270 },
-  { maker: "Prusa", model: "XL", x: 360, y: 360, z: 360 },
-  { maker: "Anycubic", model: "Kobra 2", x: 220, y: 220, z: 250, note: "also Kobra 2 Neo" },
-  { maker: "Anycubic", model: "Kobra 2 Pro", x: 220, y: 220, z: 250 },
-  { maker: "Anycubic", model: "Kobra 2 Max", x: 420, y: 420, z: 500 },
-  { maker: "Anycubic", model: "Kobra 3", x: 250, y: 220, z: 260, note: "also Kobra 3 Combo" },
-  { maker: "Anycubic", model: "Kobra S1", x: 250, y: 250, z: 250 },
-  { maker: "Anycubic", model: "Kobra 3 Max", x: 420, y: 420, z: 500 },
-  { maker: "Anycubic", model: "Vyper", x: 245, y: 245, z: 260 },
-  { maker: "Anycubic", model: "i3 Mega", x: 210, y: 210, z: 205 },
-  { maker: "Elegoo", model: "Neptune 3", x: 220, y: 220, z: 280 },
-  { maker: "Elegoo", model: "Neptune 3 Pro", x: 225, y: 225, z: 280 },
-  { maker: "Elegoo", model: "Neptune 4", x: 225, y: 225, z: 265, note: "also Neptune 4 Pro" },
-  { maker: "Elegoo", model: "Neptune 4 Plus", x: 320, y: 320, z: 385 },
-  { maker: "Elegoo", model: "Neptune 4 Max", x: 420, y: 420, z: 480 },
-  { maker: "Elegoo", model: "Centauri Carbon", x: 256, y: 256, z: 256, note: "also Centauri" },
-  { maker: "Flashforge", model: "Adventurer 5M", x: 220, y: 220, z: 220, note: "also 5M Pro" },
-  { maker: "Flashforge", model: "AD5X", x: 220, y: 220, z: 220 },
-  { maker: "Flashforge", model: "Adventurer 3", x: 150, y: 150, z: 150 },
-  { maker: "Qidi", model: "Q1 Pro", x: 245, y: 245, z: 240 },
-  { maker: "Qidi", model: "Plus 4", x: 305, y: 305, z: 280 },
-  { maker: "Qidi", model: "X-Plus 3", x: 280, y: 280, z: 270 },
-  { maker: "Qidi", model: "X-Max 3", x: 325, y: 325, z: 315 },
-  { maker: "Sovol", model: "SV06", x: 220, y: 220, z: 250, note: "also SV06 Plus: 300 × 300 × 340" },
-  { maker: "Sovol", model: "SV07", x: 220, y: 220, z: 250 },
-  { maker: "Sovol", model: "SV08", x: 350, y: 350, z: 345 },
-  { maker: "Artillery", model: "Sidewinder X2", x: 300, y: 300, z: 400, note: "also X1, X3" },
-  { maker: "Artillery", model: "Genius", x: 220, y: 220, z: 250, note: "also Genius Pro" },
-  { maker: "AnkerMake", model: "M5", x: 235, y: 235, z: 250, note: "also M5C" },
-  { maker: "Voron", model: "2.4 250", x: 250, y: 250, z: 250 },
-  { maker: "Voron", model: "2.4 300", x: 300, y: 300, z: 300 },
-  { maker: "Voron", model: "2.4 350", x: 350, y: 350, z: 350 },
-  { maker: "Voron", model: "0.2", x: 120, y: 120, z: 120 },
-  { maker: "Kingroon", model: "KP3S", x: 180, y: 180, z: 180 },
-  { maker: "Snapmaker", model: "A350", x: 320, y: 350, z: 330 },
-  { maker: "Ultimaker", model: "S5", x: 330, y: 240, z: 300 },
-  { maker: "Ultimaker", model: "2+", x: 223, y: 223, z: 205 },
-  { maker: "Toybox", model: "Toybox", x: 70, y: 80, z: 90 }
-];
-var norm2 = (s) => s.toLowerCase().replace(/-/g, " ").replace(/\s+/g, " ").trim();
-var printerName = (p) => `${p.maker} ${p.model}`;
-function findPrinters(phrase) {
-  const words = norm2(phrase).split(" ").filter(Boolean);
-  if (!words.length) return [];
-  const found = PRINTERS.filter((p) => {
-    const text2 = norm2(printerName(p));
-    return words.every((w) => text2.includes(w));
-  });
-  const exact = found.filter((p) => norm2(p.model) === norm2(phrase) || norm2(printerName(p)) === norm2(phrase));
-  return exact.length === 1 ? exact : found;
-}
-function parseBed(text2) {
-  const m = /^\s*(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)(?:\s*[x×]\s*(\d+(?:\.\d+)?))?\s*(?:mm)?\s*$/i.exec(text2);
-  if (m) {
-    const bed = { name: null, x: Number(m[1]), y: Number(m[2]), z: m[3] ? Number(m[3]) : null };
-    if (!(bed.x > 0 && bed.y > 0 && (bed.z === null || bed.z > 0))) throw new Error(`bed size must be positive: ${text2}`);
-    return bed;
-  }
-  const found = findPrinters(text2);
-  if (found.length === 1) return { name: printerName(found[0]), x: found[0].x, y: found[0].y, z: found[0].z };
-  if (found.length > 1) throw new Error(`printer "${text2}" is ambiguous: ${found.slice(0, 8).map(printerName).join(", ")}${found.length > 8 ? ", …" : ""}`);
-  throw new Error(`unknown printer "${text2}"; give the bed size as WIDTHxDEPTH or WIDTHxDEPTHxHEIGHT in mm, e.g. 220x220x250`);
-}
-
-// packages/house-forge/src/common.ts
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
-// packages/core/src/model/outline.ts
-var bboxOf = (p) => [Math.min(...p.map((q) => q[0])), Math.min(...p.map((q) => q[1])), Math.max(...p.map((q) => q[0])), Math.max(...p.map((q) => q[1]))];
-var inPolygon = (c, p) => pointInPolygon(c, p, 0);
-function outerOutline(rooms, t) {
-  const uniq = (v) => [...new Set(v.map((x) => Math.round(x * 1e5) / 1e5))].sort((a, b) => a - b);
-  const xs = uniq(rooms.flatMap((p) => p.flatMap((q) => [q[0] - t, q[0], q[0] + t]))), ys = uniq(rooms.flatMap((p) => p.flatMap((q) => [q[1] - t, q[1], q[1] + t])));
-  const nx = xs.length - 1, ny = ys.length - 1;
-  const near = (c) => rooms.some((p) => {
-    const [x0, y0, x1, y1] = bboxOf(p);
-    if (c[0] < x0 - t || c[0] > x1 + t || c[1] < y0 - t || c[1] > y1 + t) return false;
-    if (inPolygon(c, p)) return true;
-    return p.some((a, i) => {
-      const b = p[(i + 1) % p.length];
-      return Math.max(a[0], b[0]) >= c[0] - t && Math.min(a[0], b[0]) <= c[0] + t && Math.max(a[1], b[1]) >= c[1] - t && Math.min(a[1], b[1]) <= c[1] + t;
-    });
-  });
-  const full = new Uint8Array(nx * ny);
-  for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) full[i * ny + j] = near([(xs[i] + xs[i + 1]) / 2, (ys[j] + ys[j + 1]) / 2]) ? 1 : 0;
-  const on = (i, j) => i >= 0 && j >= 0 && i < nx && j < ny && full[i * ny + j] === 1;
-  const next = /* @__PURE__ */ new Map(), key = (i, j) => `${i},${j}`;
-  const add2 = (a, b) => {
-    const k = key(...a);
-    next.set(k, [...next.get(k) ?? [], b]);
-  };
-  for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) {
-    if (!on(i, j)) continue;
-    if (!on(i, j - 1)) add2([i, j], [i + 1, j]);
-    if (!on(i + 1, j)) add2([i + 1, j], [i + 1, j + 1]);
-    if (!on(i, j + 1)) add2([i + 1, j + 1], [i, j + 1]);
-    if (!on(i - 1, j)) add2([i, j + 1], [i, j]);
-  }
-  let best = [], bestArea = 0;
-  for (const k0 of [...next.keys()]) {
-    while (next.get(k0)?.length) {
-      const loop = [];
-      let k = k0;
-      while (next.get(k)?.length) {
-        const [i, j] = k.split(",").map(Number), b = next.get(k).pop();
-        loop.push([xs[i], ys[j]]);
-        k = key(...b);
-      }
-      const area3 = loop.reduce((s, a, i) => {
-        const b = loop[(i + 1) % loop.length];
-        return s + a[0] * b[1] - b[0] * a[1];
-      }, 0) / 2;
-      if (area3 > bestArea) {
-        bestArea = area3;
-        best = loop;
-      }
-    }
-  }
-  return best.filter((p, i) => {
-    const a = best[(i - 1 + best.length) % best.length], b = best[(i + 1) % best.length];
-    return !(a[0] === p[0] && p[0] === b[0] || a[1] === p[1] && p[1] === b[1]);
-  });
-}
-
-// packages/core/src/authoring/plan.ts
-var num2 = external_exports.number().finite();
-var pt = external_exports.tuple([num2, num2]);
-var id2 = external_exports.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/, "letters, digits, - _ .");
-var side = external_exports.enum(["N", "S", "E", "W"]).describe('wall of the room facing that side (N = +y, S = −y, E = +x, W = −x; plan up = N); in an L or U room the one that holds "along", else the longest');
-var CalibrationSchema = external_exports.strictObject({
-  pxPerM: num2.positive().describe("pixels per metre of the source image"),
-  originPx: pt.describe("pixel that becomes the project origin (x = 0, y = 0)"),
-  methods: external_exports.array(external_exports.strictObject({ method: external_exports.string(), pxPerM: num2.positive(), note: external_exports.string().optional() })).optional().describe("independent scale estimates (scale bar, printed area, door width…) — the build reports their agreement")
-});
-var RoomSchema2 = external_exports.strictObject({
-  id: id2,
-  name: external_exports.string().min(1),
-  level: id2,
-  kind: RoomKindSchema,
-  tags: external_exports.array(external_exports.string()).optional(),
-  label: external_exports.string().optional(),
-  rect: external_exports.tuple([num2, num2, num2, num2]).optional().describe("[x0, y0, x1, y1] of the inner wall faces"),
-  polygon: external_exports.array(pt).min(4).optional().describe("inner wall faces, axis-aligned edges, any order of corners along the outline"),
-  ceiling: num2.positive().optional().describe("ceiling height above this room floor [m]; default: level ceiling"),
-  areaPrinted: num2.positive().optional().describe("area printed on the plan [m²] (checked against the computed area)"),
-  source: external_exports.string().optional()
-}).refine((r) => !!r.rect !== !!r.polygon, "give exactly one of rect / polygon");
-var DoorSchema2 = external_exports.strictObject({
-  id: id2,
-  between: external_exports.tuple([id2, id2]).describe('the two rooms on either side; use "exterior" for an outside door'),
-  at: pt.describe("any point in the middle of the door opening (on or inside the wall between the rooms)"),
-  width: num2.positive().describe("clear opening in the masonry [m]"),
-  type: external_exports.enum(["hinged-single", "sliding", "pocket"]).default("hinged-single"),
-  swingInto: id2.optional().describe('hinged: the room the leaf opens into, or "exterior" for an outward-opening outside door (default: the second room, or the room for an exterior door)'),
-  hinge: external_exports.enum(["left", "right"]).optional().describe("hinged: hinge side as seen from the room the door opens into, looking at the wall"),
-  slideTo: external_exports.enum(["start", "end"]).optional().describe("sliding / pocket: the leaf moves towards the start (smaller coordinate) or end of the opening"),
-  height: num2.positive().optional(),
-  leafHeight: num2.positive().optional(),
-  confidence: external_exports.enum(["confirmed", "probable", "unknown"]).optional(),
-  source: external_exports.string().optional()
-});
-var LineSchema = external_exports.strictObject({ at: num2.describe("coordinate across the ridge (point units)"), height: num2.positive().describe("ceiling height on this line [m]") });
-var SlopeSchema = external_exports.strictObject({
-  ridge: external_exports.enum(["X", "Y"]).describe("the ridge line runs along this plan axis (X: left–right on the plan, Y: up–down)"),
-  ridgeAt: num2.optional().describe("coordinate of the ridge line on the other axis (a point coordinate: px in a px plan); default: middle of the level"),
-  lines: external_exports.array(LineSchema).min(1).max(2).describe("height lines drawn on the plan (e.g. knee wall 1.40 and 2.20); two lines on one side of the ridge give the slope"),
-  pitch: num2.positive().lt(80).optional().describe("roof pitch [°] — needed when only one line is given"),
-  flat: num2.positive().optional().describe("height of the flat ceiling top (collar beams) [m]; default: the level ceiling")
-}).refine((s) => s.lines.length === 2 || s.pitch !== void 0, "give two height lines, or one line and the pitch");
-var rect4 = external_exports.tuple([num2, num2, num2, num2]);
-var RoofPartSchema = external_exports.strictObject({
-  id: id2,
-  level: id2.describe("the level the part covers: its rooms get their ceilings from it"),
-  type: external_exports.enum(["gable", "hip", "shed", "flat"]),
-  rect: rect4.optional().describe('[x0, y0, x1, y1] — OUTER faces of the walls under the part (points); or "rooms"; default: the level outline (it must be a rectangle unless flat)'),
-  rooms: external_exports.array(id2).min(1).optional().describe("the part covers these rooms (their outline grown by the exterior wall)"),
-  polygon: external_exports.array(pt).min(4).optional().describe("flat part only: outer faces of the walls under it, axis-aligned edges"),
-  ridge: external_exports.enum(["X", "Y"]).optional().describe("gable / hip: the ridge runs along this plan axis (default: along the longer side)"),
-  ridgeAt: num2.optional().describe("coordinate of the ridge line on the other axis (a point coordinate); default: the middle"),
-  down: external_exports.enum(["N", "S", "E", "W"]).optional().describe("shed (and a flat roof with a pitch): the side the roof falls towards"),
-  pitch: num2.min(0).lt(80).optional().describe("roof pitch [°] (gable / hip / shed: 5–75; flat: 0–5)"),
-  pitchEnds: num2.positive().lt(80).optional().describe("hip: pitch of the two end planes [°] (default: pitch)"),
-  knee: num2.optional().describe("height above the level floor where the underside of the roof structure meets the OUTER face of the eaves walls [m] (knee wall); default: the level ceiling + slab (a roof on top of the ceiling), for flat: the level ceiling"),
-  lines: external_exports.array(LineSchema).min(1).max(2).optional().describe("instead of knee: ceiling height lines from the plan (1.40 / 2.20); two lines on one side of the ridge give the pitch"),
-  eaves: num2.min(0).optional().describe("overhang at the eaves [m] (default: roof.eaves; flat: 0)"),
-  verge: num2.min(0).optional().describe("overhang at a gable end [m] (default: roof.verge)"),
-  parapet: num2.positive().optional().describe("flat: parapet height above the covering [m]"),
-  source: external_exports.string().optional()
-}).refine((p) => [p.rect, p.rooms, p.polygon].filter(Boolean).length <= 1, "give at most one of rect / rooms / polygon").refine((p) => !p.polygon || p.type === "flat", "a polygon outline is for flat parts only (pitched parts: rectangles)").refine((p) => !(p.knee !== void 0 && p.lines), "give knee or lines, not both");
-var DormerSchema = external_exports.strictObject({
-  id: id2,
-  part: id2.describe("the roof part it stands on"),
-  type: external_exports.enum(["gable", "shed"]),
-  rect: rect4.describe("[x0, y0, x1, y1] — outer faces of its walls in plan (points); the back may stop where it meets the roof — it is carried on to the ridge"),
-  front: num2.positive().describe("height above the level floor of the underside of the dormer roof at its eaves (gable: at the cheeks; shed: at the front) [m]"),
-  pitch: num2.positive().lt(80).describe("pitch of the dormer roof [°]"),
-  window: external_exports.strictObject({ id: id2, room: id2, width: num2.positive(), sill: num2.min(0).optional(), head: num2.positive().optional() }).optional().describe("the window in its front: centred, sill / head above the room floor"),
-  source: external_exports.string().optional()
-});
-var RoofSchema2 = external_exports.strictObject({
-  covering: num2.min(0).default(0.05).describe("covering thickness (tiles, sheet) across the planes [m]"),
-  buildup: num2.positive().default(0.25).describe("thickness of the structure under it (rafters, insulation, lining) [m]"),
-  eaves: num2.min(0).default(0.5).describe("default overhang at the eaves [m]"),
-  verge: num2.min(0).default(0.3).describe("default overhang at a gable end [m]"),
-  ridgeHeight: num2.positive().optional().describe("height of the highest ridge (top of the covering) above z = 0 from the drawings [m] — checked (±10 cm)"),
-  parts: external_exports.array(RoofPartSchema).min(1),
-  dormers: external_exports.array(DormerSchema).default([]),
-  chimneys: external_exports.array(external_exports.strictObject({ id: id2, rect: rect4.describe("[x0, y0, x1, y1] (points)"), top: num2.describe("height of its top above z = 0 [m]") })).default([]),
-  confidence: external_exports.enum(["confirmed", "probable", "unknown"]).optional(),
-  source: external_exports.string().optional()
-});
-var PassageSchema = external_exports.strictObject({ between: external_exports.tuple([id2, id2]), at: pt, width: num2.positive(), height: num2.positive().optional() });
-var WindowSchema2 = external_exports.strictObject({
-  id: id2,
-  room: id2,
-  at: pt.describe("a point on the window wall, in the middle of the window"),
-  width: num2.positive(),
-  sill: num2.min(0).optional(),
-  head: num2.positive().optional(),
-  passable: external_exports.boolean().optional().describe("floor-level glazed door one can walk through onto the terrain")
-});
-var StairSchema2 = external_exports.strictObject({
-  id: id2,
-  from: id2,
-  to: id2,
-  box: external_exports.tuple([num2, num2, num2, num2]).describe("[x0, y0, x1, y1] — outline of the whole stair (both flights and the landing)"),
-  up: external_exports.enum(["N", "S", "E", "W"]).default("S").describe("direction one walks up the lower flight (N = +y, plan up); the landing is at that end of the box"),
-  turn: external_exports.enum(["left", "right"]).default("right").describe("which way one turns on the landing going up (towards the upper flight)"),
-  risers: external_exports.number().int().min(2).describe("risers per flight (two flights, U-turn)"),
-  tread: num2.positive(),
-  flightWidth: num2.positive(),
-  gap: num2.min(0).default(0.05),
-  note: external_exports.string().optional(),
-  confidence: external_exports.string().optional()
-});
-var FurnitureSchema = external_exports.strictObject({
-  key: id2.optional(),
-  room: id2,
-  catalogId: external_exports.string().min(1),
-  variant: external_exports.string().nullable().optional(),
-  at: pt.optional().describe("centre of the footprint"),
-  rot: num2.optional().describe("0 = front faces +Y, 90 = −X, 180 = −Y, 270 = +X"),
-  wall: side.optional().describe("back against this wall of the room (instead of at / rot)"),
-  along: num2.optional().describe("with wall: coordinate of the item centre along the wall (x for N / S walls, y for E / W walls)"),
-  dims: external_exports.strictObject({ w: num2.optional(), d: num2.optional(), h: num2.optional() }).optional(),
-  elevation: num2.optional(),
-  group: external_exports.string().optional(),
-  materialId: external_exports.string().optional(),
-  basis: external_exports.enum(["dimensioned", "drawn", "approximate"]).optional(),
-  note: external_exports.string().optional(),
-  source: external_exports.string().optional()
-});
-var PointSchema = external_exports.strictObject({
-  id: id2.optional(),
-  type: external_exports.string().min(1),
-  room: id2,
-  height: num2.describe("height above the finished floor [m]"),
-  label: external_exports.string(),
-  at: pt.optional(),
-  wall: side.optional(),
-  along: num2.optional(),
-  width: num2.optional(),
-  notes: external_exports.string().optional()
-});
-var PlanSchema = external_exports.strictObject({
-  $schema: external_exports.string().optional(),
-  schema: external_exports.literal("home-simulator/plan"),
-  version: external_exports.literal(1),
-  project: external_exports.strictObject({
-    id: external_exports.string().regex(/^[a-z0-9][a-z0-9-]*$/),
-    name: external_exports.string().min(1),
-    description: external_exports.string().optional(),
-    documentTitle: external_exports.string().optional(),
-    language: external_exports.string().optional(),
-    buildingType: external_exports.enum(["house", "apartment"]),
-    origin: external_exports.string().optional().describe("where the project origin is and how the axes run (human-readable)"),
-    metadata: external_exports.record(external_exports.string(), external_exports.union([external_exports.string(), num2, external_exports.boolean(), external_exports.null()])).optional()
-  }),
-  units: external_exports.enum(["m", "px"]).default("m"),
-  calibration: CalibrationSchema.optional(),
-  /** regularise geometry: snap to 5 mm, align room faces on shared lines, set shared wall thickness to the interior wall
-   *  when it is close (default: on for px plans, off for m plans) */
-  regularize: external_exports.boolean().optional(),
-  source: external_exports.string().describe('default provenance of every fact (e.g. "floor plan image plan.png, calibrated from printed areas")'),
-  defaults: external_exports.strictObject({
-    exteriorWall: num2.positive().default(0.3),
-    interiorWall: num2.positive().default(0.12),
-    slab: num2.positive().default(0.25),
-    doorHeight: num2.positive().default(2.05),
-    leafHeight: num2.positive().default(2),
-    sill: num2.min(0).default(0.85),
-    head: num2.positive().default(2.35),
-    confidence: external_exports.enum(["confirmed", "probable", "unknown"]).default("probable"),
-    basis: external_exports.enum(["dimensioned", "drawn", "approximate"]).default("approximate")
-  }).prefault({}),
-  levels: external_exports.array(external_exports.strictObject({ id: id2, name: external_exports.string(), floorZ: num2, ceiling: num2.positive().describe("ceiling height above the floor [m]"), cutHeight: num2.positive().optional().describe("section height above the floor [m]; default: 10 cm above the highest window head, at least 2.30, below the ceiling"), slope: SlopeSchema.optional().describe("sloped ceilings of every room on this level (attic): without a roof block it becomes a gable roof part over the level; with one, a cross-check. A room's own `ceiling` is its flat top"), calibration: CalibrationSchema.optional().describe("px plans drawn as one image per level: the scale and origin of THIS level's image (the origin pixel = the same building corner on every image); default: the plan calibration") })).min(1),
-  rooms: external_exports.array(RoomSchema2).min(1),
-  doors: external_exports.array(DoorSchema2).default([]),
-  passages: external_exports.array(PassageSchema).default([]),
-  windows: external_exports.array(WindowSchema2).default([]),
-  roofWindows: external_exports.array(external_exports.strictObject({ id: id2, room: id2, rect: external_exports.tuple([num2, num2, num2, num2]).describe("[x0, y0, x1, y1] of the window in the sloped ceiling, seen from above") })).default([]),
-  roof: RoofSchema2.optional().describe("the roof: parts over the levels (gable, hip, shed, flat), dormers, chimneys; without it a level slope builds a gable part"),
-  stairs: external_exports.array(StairSchema2).default([]),
-  furniture: external_exports.array(FurnitureSchema).default([]),
-  notIncluded: external_exports.array(external_exports.strictObject({ room: id2, what: external_exports.string(), why: external_exports.string() })).default([]),
-  electrical: external_exports.array(PointSchema).default([]),
-  site: external_exports.strictObject({
-    boundary: external_exports.array(pt).min(3).optional(),
-    margin: num2.positive().optional().describe("plot = building footprint grown by this margin [m]"),
-    groundLevel: num2.default(-0.15).describe("terrain next to the building relative to the lowest floor [m]")
-  }).optional(),
-  sun: external_exports.strictObject({
-    lat: num2.min(-90).max(90),
-    lon: num2.min(-180).max(180),
-    timeZone: external_exports.string().min(1),
-    northAzimuthX: num2.describe("azimuth of the +X axis measured clockwise from geographic north [°] (90 = +X points east)"),
-    confidence: external_exports.enum(["confirmed", "probable", "unknown"]).default("probable"),
-    placeName: external_exports.string().optional()
-  }).optional(),
-  viewpoints: external_exports.array(external_exports.strictObject({ id: id2, name: external_exports.string(), level: external_exports.string(), at: pt, look: external_exports.tuple([num2, num2, num2]), fov: num2.default(70), hint: external_exports.string().default("") })).default([]),
-  defaultView: external_exports.strictObject({ level: id2.optional(), room: id2.optional(), view: external_exports.enum(["exterior", "interior"]).optional() }).optional(),
-  notes: external_exports.record(external_exports.string(), external_exports.string()).optional().describe("per room: where its default layout comes from"),
-  capabilities: external_exports.array(external_exports.enum(["interiors", "electrical", "variants", "walk"])).optional().describe("sections the app offers for this building (default: all four)"),
-  assets: ProjectSchema.shape.assets.describe('model files in the project directory, copied to project.json: model (building GLB instead of the generated shell), site (terrain GLB, needs "site"), environment (surroundings GLB — enables the environment module), bounds, sectionCaps, plinthExtra, groundMeshes'),
-  views: ProjectSchema.shape.views.describe("camera presets, copied to project.json (default: the engine views)"),
-  catalog: ProjectSchema.shape.catalog.describe(`the project's own furniture / material catalog files (ids "<project id>:…"), copied to project.json`),
-  dataSources: external_exports.record(external_exports.string(), external_exports.string()).optional()
-});
-
-// packages/core/src/authoring/roof.ts
-var r3 = (x) => Math.round(x * 1e3) / 1e3 + 0;
-var tan = (deg2) => Math.tan(deg2 * Math.PI / 180);
-var deg = (k) => Math.atan(k) * 180 / Math.PI;
-var rectOf = (a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
-var bboxOf2 = (pts) => [Math.min(...pts.map((p) => p[0])), Math.min(...pts.map((p) => p[1])), Math.max(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[1]))];
-var grow2 = (r, d) => [r[0] - d, r[1] - d, r[2] + d, r[3] + d];
-var r3Rect = (r) => r.map(r3);
-var gablePlanes = (ax, r, zr, k) => ax === 1 ? [{ gx: 0, gy: -k, z0: zr + k * r }, { gx: 0, gy: k, z0: zr - k * r }] : [{ gx: -k, gy: 0, z0: zr + k * r }, { gx: k, gy: 0, z0: zr - k * r }];
-function compileRoof(ctx) {
-  const { plan, P, along, polys, err, warn } = ctx, D = plan.defaults, t = D.exteriorWall;
-  const levels = new Map(plan.levels.map((l) => [l.id, l]));
-  const roomsOf = (level) => plan.rooms.filter((r) => r.level === level);
-  const grownRooms2 = (level) => roomsOf(level).map((r) => grownPolygon(polys.get(r.id), t));
-  const above = (level) => plan.levels.filter((l) => l.floorZ > (levels.get(level)?.floorZ ?? 0) + 0.01).map((l) => l.id);
-  const overLevel = (level, x, y) => grownRooms2(level).some((g) => inRegion(g, x, y));
-  const R = plan.roof, covering = R?.covering ?? ROOF_DEFAULTS.covering, buildup = R?.buildup ?? ROOF_DEFAULTS.buildup;
-  const eavesDefault = R?.eaves ?? ROOF_DEFAULTS.eaves, vergeDefault = R?.verge ?? ROOF_DEFAULTS.verge;
-  const parts = [];
-  const slopeGable = (lv, rect3) => {
-    const s = lv.slope, ax = s.ridge === "X" ? 1 : 0, lo = rect3[ax] + t, hi = rect3[ax + 2] - t;
-    const r = s.ridgeAt !== void 0 ? along(ax, s.ridgeAt, lv.id) : (lo + hi) / 2;
-    const lines = s.lines.map((l) => ({ at: along(ax, l.at, lv.id), height: l.height }));
-    let k;
-    if (lines.length === 2) {
-      const [a, b] = lines;
-      if ((a.at - r) * (b.at - r) < 0) {
-        err("level.slope", `level "${lv.id}": both slope lines must lie on one side of the ridge`);
-        return null;
-      }
-      k = Math.abs(b.height - a.height) / Math.max(1e-6, Math.abs(b.at - a.at));
-      if (Math.abs(b.at - r) < Math.abs(a.at - r) !== b.height > a.height) err("level.slope", `level "${lv.id}": the ceiling must rise towards the ridge`);
-      if (s.pitch !== void 0 && Math.abs(deg(k) - s.pitch) > 5) warn("level.slope", `level "${lv.id}": the lines give a ${Math.round(deg(k) * 100) / 100}° slope, the pitch says ${s.pitch}°`);
-    } else k = tan(s.pitch);
-    const zr = lv.floorZ + lines[0].height + k * Math.abs(r - lines[0].at), flat = s.flat ?? lv.ceiling;
-    if (zr - lv.floorZ < flat) warn("level.slope", `level "${lv.id}": the slope does not reach the flat ceiling at ${flat} m — check the lines or the pitch`);
-    return { ridge: s.ridge, ax, r, zr, k };
-  };
-  const levelRect = (level) => {
-    const outline = outerOutline(roomsOf(level).map((r) => polys.get(r.id)), t), b = bboxOf2(outline);
-    return { rect: Math.abs(area(outline) - (b[2] - b[0]) * (b[3] - b[1])) < 1e-6 ? b : null, polygon: outline };
-  };
-  if (R) {
-    for (const p of R.parts) {
-      const lv = levels.get(p.level), what = `roof part "${p.id}"`;
-      if (!lv) {
-        err("roof.level", `${what}: unknown level "${p.level}"`);
-        continue;
-      }
-      if (!roomsOf(p.level).length) {
-        err("roof.level", `${what}: level "${p.level}" has no rooms`);
-        continue;
-      }
-      let rect3 = null, polygon = null;
-      if (p.rect) rect3 = rectOf(P([p.rect[0], p.rect[1]], p.level), P([p.rect[2], p.rect[3]], p.level));
-      else if (p.rooms) {
-        const bad = p.rooms.filter((id3) => !polys.has(id3) || plan.rooms.find((r) => r.id === id3).level !== p.level);
-        if (bad.length) {
-          err("roof.rooms", `${what}: ${bad.join(", ")} — not rooms of level "${p.level}"`);
-          continue;
-        }
-        rect3 = grow2(bboxOf2(p.rooms.flatMap((id3) => polys.get(id3))), t);
-      } else if (p.polygon) polygon = p.polygon.map((q) => P(q, p.level));
-      else {
-        const o = levelRect(p.level);
-        if (o.rect) rect3 = o.rect;
-        else if (p.type === "flat") polygon = o.polygon;
-        else {
-          err("roof.rect", `${what}: the outline of level "${p.level}" is not a rectangle — give "rect" or "rooms" for every wing`);
-          continue;
-        }
-      }
-      if (rect3) rect3 = r3Rect(rect3);
-      const box = rect3 ?? bboxOf2(polygon), fz = lv.floorZ;
-      const zKnee = fz + (p.knee ?? (p.type === "flat" ? lv.ceiling : lv.ceiling + D.slab));
-      const ridge = p.ridge ?? (box[2] - box[0] >= box[3] - box[1] ? "X" : "Y");
-      const res = { in: p, id: p.id, level: p.level, type: p.type, rect: rect3, polygon, ridge: p.type === "gable" || p.type === "hip" ? ridge : null, r: 0, zr: zKnee, k: 0, pitch: p.pitch ?? 0, planes: [], over: [0, 0, 0, 0], extra: [], ends: {} };
-      const lines = p.lines?.map((l) => ({ at: 0, raw: l.at, height: l.height }));
-      const slopeK = (ax) => {
-        if (lines?.length === 2) {
-          for (const l of lines) l.at = along(ax, l.raw, p.level);
-          const k = Math.abs(lines[1].height - lines[0].height) / Math.max(1e-6, Math.abs(lines[1].at - lines[0].at));
-          if (p.pitch !== void 0 && Math.abs(deg(k) - p.pitch) > 5) warn("roof.pitch", `${what}: the lines give ${Math.round(deg(k) * 10) / 10}°, the pitch says ${p.pitch}°`);
-          return k;
-        }
-        if (lines) for (const l of lines) l.at = along(ax, l.raw, p.level);
-        if (p.pitch === void 0) {
-          if (p.type !== "flat") err("roof.pitch", `${what}: give the pitch (or two height lines)`);
-          return 0;
-        }
-        return tan(p.pitch);
-      };
-      if (p.type === "gable" || p.type === "hip") {
-        const ax = ridge === "X" ? 1 : 0, c0 = box[ax], c1 = box[ax + 2];
-        const r = p.ridgeAt !== void 0 ? along(ax, p.ridgeAt, p.level) : (c0 + c1) / 2, k = slopeK(ax);
-        const zr = lines ? fz + lines[0].height + k * Math.abs(r - lines[0].at) : zKnee + k * Math.max(r - c0, c1 - r);
-        Object.assign(res, { r, zr, k, pitch: deg(k), planes: gablePlanes(ax, r, zr, k) });
-        const [o0, o1] = [p.eaves ?? eavesDefault, p.verge ?? vergeDefault];
-        res.over = ridge === "X" ? [p.type === "hip" ? o0 : o1, o0, p.type === "hip" ? o0 : o1, o0] : [o0, p.type === "hip" ? o0 : o1, o0, p.type === "hip" ? o0 : o1];
-        if (p.type === "hip") {
-          const ke = tan(p.pitchEnds ?? p.pitch ?? deg(k)), zE = zr - k * Math.max(r - c0, c1 - r), e = 1 - ax, e0 = box[e], e1 = box[e + 2];
-          const lo = e === 0 ? { gx: ke, gy: 0, z0: zE - ke * e0 } : { gx: 0, gy: ke, z0: zE - ke * e0 };
-          const hi = e === 0 ? { gx: -ke, gy: 0, z0: zE + ke * e1 } : { gx: 0, gy: -ke, z0: zE + ke * e1 };
-          res.ends = e === 0 ? { W: lo, E: hi } : { S: lo, N: hi };
-          if (2 * ((zr - zE) / ke) > e1 - e0 + 1e-6) warn("roof.hip", `${what}: the hip ends meet before the ridge — the roof becomes a pyramid (tent) roof`);
-          if (p.pitchEnds !== void 0 && (p.pitchEnds < 5 || p.pitchEnds > 75)) err("roof.pitch", `${what}: hip end pitch ${p.pitchEnds}° (5–75°)`);
-        }
-      } else {
-        const down = p.down ?? "S", k = slopeK(down === "S" || down === "N" ? 1 : 0);
-        if (p.type === "shed" || k > 0) {
-          const ax = down === "S" || down === "N" ? 1 : 0, sgn = down === "S" || down === "W" ? 1 : -1, edge = sgn > 0 ? box[ax] : box[ax + 2];
-          const zLow = lines ? fz + lines[0].height - k * sgn * (lines[0].at - edge) : zKnee;
-          const plane = ax === 1 ? { gx: 0, gy: sgn * k, z0: zLow - sgn * k * edge } : { gx: sgn * k, gy: 0, z0: zLow - sgn * k * edge };
-          const zHigh = planeZ(plane, sgn > 0 && ax === 0 ? box[2] : box[0], sgn > 0 && ax === 1 ? box[3] : box[1]);
-          Object.assign(res, { r: sgn > 0 ? box[ax + 2] : box[ax], zr: Math.max(zLow, zHigh), k, pitch: deg(k), planes: [plane] });
-        } else Object.assign(res, { zr: lines ? fz + lines[0].height : zKnee, planes: [{ gx: 0, gy: 0, z0: lines ? fz + lines[0].height : zKnee }] });
-        const o0 = p.eaves ?? (p.type === "flat" ? 0 : eavesDefault), o1 = p.verge ?? (p.type === "flat" ? o0 : vergeDefault);
-        res.over = down === "S" || down === "N" ? [o1, o0, o1, o0] : [o0, o1, o0, o1];
-      }
-      if (p.type === "flat" ? res.pitch > 5 : res.pitch < 5 || res.pitch > 75) err("roof.pitch", `${what}: pitch ${Math.round(res.pitch * 10) / 10}° (${p.type === "flat" ? "flat: 0–5°" : "5–75°"})`);
-      if (p.parapet && p.type !== "flat") err("roof.parapet", `${what}: a parapet belongs to a flat part`);
-      parts.push(res);
-    }
-  } else {
-    for (const lv of plan.levels) {
-      if (!lv.slope || !roomsOf(lv.id).length) continue;
-      const o = levelRect(lv.id), rect3 = r3Rect(o.rect ?? bboxOf2(o.polygon));
-      if (!o.rect) warn("roof.outline", `level "${lv.id}": the outline is not a rectangle — the gable from its slope covers the bounding rectangle; describe the wings in a "roof" block`);
-      const g = slopeGable(lv, rect3);
-      if (!g) continue;
-      const res = { in: null, id: `slope-${lv.id}`, level: lv.id, type: "gable", rect: rect3, polygon: null, ridge: g.ridge, r: g.r, zr: g.zr, k: g.k, pitch: deg(g.k), planes: gablePlanes(g.ax, g.r, g.zr, g.k), over: [0, 0, 0, 0], extra: [], ends: {} };
-      const e = gableExtent(rect3, g.ridge, ROOF_DEFAULTS.eaves, ROOF_DEFAULTS.verge);
-      res.over = [rect3[0] - e[0], rect3[1] - e[1], e[2] - rect3[2], e[3] - rect3[3]];
-      parts.push(res);
-    }
-  }
-  const ids = /* @__PURE__ */ new Set();
-  for (const p of parts) {
-    if (ids.has(p.id)) err("roof.id", `roof part "${p.id}": repeated id`);
-    ids.add(p.id);
-  }
-  for (const p of parts) {
-    const b = p.rect ?? bboxOf2(p.polygon), up = above(p.level), e = 0.02;
-    const sides = [[[b[0], b[1]], [b[0], b[3]], [-1, 0]], [[b[0], b[1]], [b[2], b[1]], [0, -1]], [[b[2], b[1]], [b[2], b[3]], [1, 0]], [[b[0], b[3]], [b[2], b[3]], [0, 1]]];
-    sides.forEach(([a, c, out], i) => {
-      const hits = [0.25, 0.5, 0.75].some((s) => up.some((l) => overLevel(l, a[0] + (c[0] - a[0]) * s + out[0] * e, a[1] + (c[1] - a[1]) * s + out[1] * e)));
-      if (hits) p.over[i] = 0;
-    });
-    for (const l of up) for (const g of grownRooms2(l).map(bboxOf2)) {
-      const w = Math.min(g[2], b[2]) - Math.max(g[0], b[0]), d = Math.min(g[3], b[3]) - Math.max(g[1], b[1]);
-      if (w > t + 0.02 && d > t + 0.02) {
-        err("roof.levelAbove", `roof part "${p.id}": level "${l}" stands over it — a roof part covers the top of its level`);
-        break;
-      }
-    }
-  }
-  const extentOf = (p) => {
-    const b = p.rect;
-    return [b[0] - p.over[0], b[1] - p.over[1], b[2] + p.over[2], b[3] + p.over[3]];
-  };
-  const pitched = parts.filter((p) => p.rect && p.ridge);
-  const joins = [];
-  for (const a of pitched) for (const end of a.ridge === "X" ? ["W", "E"] : ["S", "N"]) {
-    const b = a.rect, i = { W: 0, S: 1, E: 2, N: 3 }[end], sgn = end === "W" || end === "S" ? -1 : 1, ax = end === "W" || end === "E" ? 0 : 1;
-    const edge = b[i], mid = ax === 0 ? (b[1] + b[3]) / 2 : (b[0] + b[2]) / 2;
-    const probe = ax === 0 ? [edge + sgn * 0.01, mid] : [mid, edge + sgn * 0.01];
-    const host = pitched.find((h) => h !== a && h.level === a.level && h.ridge !== a.ridge && inRegion(h.rect, probe[0], probe[1]) && h.zr >= a.zr - 0.01);
-    if (!host) continue;
-    joins.push([a, host]);
-    a.over[i] = 0;
-    delete a.ends[end];
-    const he = extentOf(host), ae = extentOf(a), rB = host.r;
-    if ((rB - edge) * sgn > 1e-6) {
-      const strip = ax === 0 ? [Math.min(edge, rB), Math.max(ae[1], he[1]), Math.max(edge, rB), Math.min(ae[3], he[3])] : [Math.max(ae[0], he[0]), Math.min(edge, rB), Math.min(ae[2], he[2]), Math.max(edge, rB)];
-      if (strip[2] - strip[0] > 1e-6 && strip[3] - strip[1] > 1e-6) a.extra.push(r3Rect(strip));
-    } else if ((rB - edge) * sgn < -1e-6) {
-      a.over[i] = -(edge - rB) * sgn;
-    }
-  }
-  for (const p of parts) if (p.type === "hip") p.planes = [...p.planes, ...Object.values(p.ends)];
-  const jsonParts = parts.map((p) => {
-    const extent = p.rect ? [r3Rect(extentOf(p)), ...p.extra] : [];
-    const out = { id: p.id, level: p.level, type: p.type, ...p.rect ? { rect: p.rect } : { polygon: p.polygon.map(([x, y]) => [r3(x), r3(y)]) }, extent, planes: p.planes.map(planeJson) };
-    if (p.polygon) out.extentPolygon = grownPolygon(p.polygon, p.over[0]).map(([x, y]) => [r3(x), r3(y)]);
-    if (p.in?.parapet) out.parapet = p.in.parapet;
-    if (p.ridge) out.ridge = p.ridge;
-    if (p.type !== "flat" || p.pitch) out.pitch = Math.round(p.pitch * 10) / 10;
-    return out;
-  });
-  const partModel = jsonParts.length ? roofModel({ covering, buildup, parts: jsonParts }) : null;
-  const dormers = [], windows = [];
-  for (const d of R?.dormers ?? []) {
-    const p = parts.find((x) => x.id === d.part), what = `dormer "${d.id}"`;
-    if (!p || !p.rect || p.type === "flat") {
-      err("dormer.part", `${what}: "${d.part}" is not a pitched roof part`);
-      continue;
-    }
-    const lv = levels.get(p.level), fz = lv.floorZ, own2 = partModel.byLevel(p.level).filter((q) => q.id === p.id);
-    const rect3 = rectOf(P([d.rect[0], d.rect[1]], p.level), P([d.rect[2], d.rect[3]], p.level));
-    const at = (x, y) => surfaceAt({ pieces: own2, which: "inner" }, x, y);
-    const c = at((rect3[0] + rect3[2]) / 2, (rect3[1] + rect3[3]) / 2);
-    if (!c || Math.abs(c.plane.gx) > 1e-9 === Math.abs(c.plane.gy) > 1e-9) {
-      err("dormer.plane", `${what}: not over a plane of "${p.id}"`);
-      continue;
-    }
-    const P0 = c.plane, front = P0.gx > 0 ? "W" : P0.gx < 0 ? "E" : P0.gy > 0 ? "S" : "N";
-    const fi = { W: 0, S: 1, E: 2, N: 3 }[front], bi = (fi + 2) % 4, ax = front === "W" || front === "E" ? 0 : 1, a = 1 - ax;
-    const corner = (u, f) => ax === 0 ? [f, u] : [u, f];
-    const inset = [0.02, 0.5, 0.98].flatMap((s) => [0.02, 0.5, 0.98].map((r) => [rect3[0] + (rect3[2] - rect3[0]) * s, rect3[1] + (rect3[3] - rect3[1]) * r]));
-    if (inset.some((q) => at(q[0], q[1])?.plane !== P0)) {
-      err("dormer.plane", `${what}: it does not stand on one plane of "${p.id}" (it crosses a hip, a valley or the ridge)`);
-      continue;
-    }
-    const flush = Math.abs(rect3[fi] - p.rect[fi]) < 0.02;
-    if (flush) rect3[fi] = p.rect[fi];
-    const back = p.r;
-    if ((back - rect3[bi]) * (bi >= 2 ? 1 : -1) > 0) rect3[bi] = back;
-    const cheek = buildup, frontWall = flush ? t : buildup, inner = [...rect3];
-    inner[a] += cheek;
-    inner[a + 2] -= cheek;
-    inner[fi] += fi >= 2 ? -frontWall : frontWall;
-    const zF = fz + d.front, kd = tan(d.pitch), sgnF = fi >= 2 ? -1 : 1;
-    let planes;
-    if (d.type === "gable") {
-      const a0 = rect3[a], a1 = rect3[a + 2];
-      planes = a === 0 ? [{ gx: kd, gy: 0, z0: zF - kd * a0 }, { gx: -kd, gy: 0, z0: zF + kd * a1 }] : [{ gx: 0, gy: kd, z0: zF - kd * a0 }, { gx: 0, gy: -kd, z0: zF + kd * a1 }];
-    } else {
-      const f = rect3[fi];
-      planes = [ax === 0 ? { gx: sgnF * kd, gy: 0, z0: zF - sgnF * kd * f } : { gx: 0, gy: sgnF * kd, z0: zF - sgnF * kd * f }];
-    }
-    const v = vergeDefault, extent = [...rect3];
-    extent[a] -= v;
-    extent[a + 2] += v;
-    extent[fi] += fi >= 2 ? v : -v;
-    const top = (x, y) => Math.min(...planes.map((q) => planeZ(raise(q, buildup + covering), x, y)));
-    const roofTop = (x, y) => surfaceAt({ pieces: own2, which: "cover", lift: buildup + covering }, x, y)?.z ?? -Infinity;
-    const backPts = [rect3[a], (rect3[a] + rect3[a + 2]) / 2, rect3[a + 2]].map((u) => corner(u, rect3[bi]));
-    if (backPts.some((q) => top(q[0], q[1]) > roofTop(q[0], q[1]) + 0.01)) err("dormer.high", `${what}: its roof is higher than the roof of "${p.id}" at the ridge — lower "front" or the pitch`);
-    const frontMid = corner((rect3[a] + rect3[a + 2]) / 2, rect3[fi]);
-    if (zF < planeZ(P0, frontMid[0], frontMid[1]) - 0.01) err("dormer.low", `${what}: its eaves (${d.front} m) are below the roof plane at its front`);
-    const rec = { id: d.id, part: p.id, type: d.type, front, rect: r3Rect(rect3), inner: r3Rect(inner), extent: r3Rect(extent), planes: planes.map(planeJson) };
-    if (d.window) {
-      const w = d.window, room = plan.rooms.find((r) => r.id === w.room);
-      if (!room || room.level !== p.level) err("dormer.window", `${what}: window room "${w.room}" is not on level "${p.level}"`);
-      else if (flush) windows.push({ id: w.id, room: w.room, at: corner((rect3[a] + rect3[a + 2]) / 2, inner[fi]), width: w.width, sill: w.sill, head: w.head });
-      else {
-        rec.window = { id: w.id, roomId: w.room, width: w.width, sill_z: r3(fz + (w.sill ?? D.sill)), head_z: r3(fz + (w.head ?? D.head)) };
-        const face = corner((rect3[a] + rect3[a + 2]) / 2, inner[fi]), under = planeZ(P0, face[0], face[1]), over = Math.min(...planes.map((q) => planeZ(q, face[0], face[1])));
-        if (rec.window.sill_z < under + 0.05 || rec.window.head_z > over) err("dormer.window", `${what}: the window (${w.sill ?? D.sill}–${w.head ?? D.head} m) must lie between the roof below its front (${r3(under - fz)} m) and the dormer roof (${r3(over - fz)} m)`);
-      }
-      if (w.width > inner[a + 2] - inner[a] - 0.1) err("dormer.window", `${what}: a ${w.width} m window does not fit its ${r3(inner[a + 2] - inner[a])} m front`);
-    }
-    dormers.push(rec);
-  }
-  const lowestFirst = [...plan.levels].sort((x, y) => x.floorZ - y.floorZ);
-  const chimneys = (R?.chimneys ?? []).flatMap((c) => {
-    const rect3 = r3Rect(rectOf(P([c.rect[0], c.rect[1]], lowestFirst[0].id), P([c.rect[2], c.rect[3]], lowestFirst[0].id)));
-    const cx = (rect3[0] + rect3[2]) / 2, cy = (rect3[1] + rect3[3]) / 2, lv = lowestFirst.find((l) => overLevel(l.id, cx, cy));
-    if (!lv) {
-      err("chimney.outside", `chimney "${c.id}": not over the walls of any level`);
-      return [];
-    }
-    return [{ id: c.id, rect: rect3, bottom: r3(lv.floorZ - D.slab), top: c.top }];
-  });
-  const json2 = jsonParts.length ? { covering, buildup, parts: jsonParts, ...dormers.length ? { dormers } : {}, ...chimneys.length ? { chimneys } : {}, ...R?.source ? { source: R.source } : {}, ...R?.confidence ? { confidence: R.confidence } : {} } : null;
-  const model = json2 ? roofModel(json2) : null;
-  if (!model) return { json: json2, model, windows };
-  const surfaceTop = (level) => ({ pieces: model.byLevel(level), which: "cover", lift: model.thickness });
-  for (const c of chimneys) {
-    const cx = (c.rect[0] + c.rect[2]) / 2, cy = (c.rect[1] + c.rect[3]) / 2;
-    const roofAt = Math.max(-Infinity, ...model.levels.map((l) => surfaceAt(surfaceTop(l), cx, cy)?.z ?? -Infinity));
-    if (Number.isFinite(roofAt) && c.top < roofAt + 0.3) warn("chimney.low", `chimney "${c.id}": its top (${c.top} m) is less than 30 cm above the roof (${r3(roofAt)} m)`);
-  }
-  for (const level of model.levels) {
-    const up = above(level), rects = parts.filter((p) => p.level === level).map((p) => p.rect ? grow2(p.rect, 0.01) : null), polysOf = parts.filter((p) => p.level === level && p.polygon).map((p) => p.polygon);
-    let bare = 0;
-    for (const poly of grownRooms2(level)) {
-      const g = bboxOf2(poly);
-      const xs = [.../* @__PURE__ */ new Set([...poly.map((q) => q[0]), ...rects.flatMap((r) => r ? [r[0], r[2]] : []).filter((x) => x > g[0] && x < g[2])])].sort((u, w) => u - w);
-      const ys = [.../* @__PURE__ */ new Set([...poly.map((q) => q[1]), ...rects.flatMap((r) => r ? [r[1], r[3]] : []).filter((y) => y > g[1] && y < g[3])])].sort((u, w) => u - w);
-      for (let i = 0; i + 1 < xs.length; i++) for (let j = 0; j + 1 < ys.length; j++) {
-        const x = (xs[i] + xs[i + 1]) / 2, y = (ys[j] + ys[j + 1]) / 2;
-        if (!inRegion(poly, x, y) || up.some((l) => overLevel(l, x, y))) continue;
-        if (rects.some((r) => r && x > r[0] && x < r[2] && y > r[1] && y < r[3]) || polysOf.some((q) => inRegion(q, x, y))) continue;
-        bare += (xs[i + 1] - xs[i]) * (ys[j + 1] - ys[j]);
-      }
-    }
-    if (bare > 0.01) err("roof.cover", `level "${level}": ${r3(bare)} m² of its walls are under no roof part — add a part or widen one`);
-  }
-  for (const [a, host] of joins) {
-    const za = a.zr - a.k * Math.max(a.r - a.rect[a.ridge === "X" ? 1 : 0], a.rect[a.ridge === "X" ? 3 : 2] - a.r);
-    const zb = host.zr - host.k * Math.max(host.r - host.rect[host.ridge === "X" ? 1 : 0], host.rect[host.ridge === "X" ? 3 : 2] - host.r);
-    if (Math.abs(za - zb) > 0.02) warn("roof.eaves", `roof parts "${a.id}" and "${host.id}" meet with their eaves ${Math.round(Math.abs(za - zb) * 100)} cm apart — give them the same knee height`);
-  }
-  if (R?.ridgeHeight !== void 0) {
-    let top = -Infinity;
-    for (const level of model.levels) for (const p of model.byLevel(level)) {
-      const r = surfaceRange(surfaceTop(level), regionPolygon(p.cover));
-      if (r) top = Math.max(top, r[1]);
-    }
-    if (Math.abs(top - R.ridgeHeight) > 0.1) warn("roof.ridgeHeight", `the roof's ridge comes out at ${r3(top)} m, the drawings say ${R.ridgeHeight} m — check the knee height and the pitch`);
-  }
-  for (const lv of plan.levels) {
-    if (model.byLevel(lv.id).length || !roomsOf(lv.id).length) continue;
-    const up = above(lv.id);
-    let bare = 0;
-    const upper = up.flatMap((l) => grownRooms2(l));
-    for (const poly of grownRooms2(lv.id)) {
-      const xs = [...new Set([...poly, ...upper.flat()].map((q) => q[0]))].sort((u, w) => u - w), ys = [...new Set([...poly, ...upper.flat()].map((q) => q[1]))].sort((u, w) => u - w);
-      for (let i = 0; i + 1 < xs.length; i++) for (let j = 0; j + 1 < ys.length; j++) {
-        const x = (xs[i] + xs[i + 1]) / 2, y = (ys[j] + ys[j + 1]) / 2;
-        if (inRegion(poly, x, y) && !up.some((l) => overLevel(l, x, y))) bare += (xs[i + 1] - xs[i]) * (ys[j + 1] - ys[j]);
-      }
-    }
-    if (bare > 0.01) warn("roof.missing", `level "${lv.id}": ${r3(bare)} m² of it have no level and no roof part above (${up.length ? "open at the top" : "a flat slab"}) — add a roof part (flat or pitched)`);
-  }
-  return { json: json2, model, windows };
-}
-function grownPolygon(p, d) {
-  if (!d) return p;
-  const n = p.length, s = p.reduce((acc, a, i) => {
-    const b = p[(i + 1) % n];
-    return acc + a[0] * b[1] - b[0] * a[1];
-  }, 0) >= 0 ? 1 : -1;
-  return p.map((b, i) => {
-    const a = p[(i + n - 1) % n], c = p[(i + 1) % n];
-    const e1 = [b[0] - a[0], b[1] - a[1]], e2 = [c[0] - b[0], c[1] - b[1]], l1 = Math.hypot(...e1) || 1, l2 = Math.hypot(...e2) || 1;
-    const n1 = [s * e1[1] / l1, -s * e1[0] / l1], n2 = [s * e2[1] / l2, -s * e2[0] / l2], den = 1 + n1[0] * n2[0] + n1[1] * n2[1];
-    return [b[0] + (n1[0] + n2[0]) * d / den, b[1] + (n1[1] + n2[1]) * d / den];
-  });
-}
-
-// packages/core/src/authoring/compile.ts
-var EPS2 = 1e-6;
-var r32 = (x) => Math.round(x * 1e3) / 1e3;
-var r2 = (x) => Math.round(x * 100) / 100;
-var snap5 = (x) => Math.round(x * 200) / 200;
-var cleanZero = (x) => Object.is(x, -0) ? 0 : x;
-var area2 = (p) => p.reduce((s, a, i) => {
-  const b = p[(i + 1) % p.length];
-  return s + a[0] * b[1] - b[0] * a[1];
-}, 0);
-function normalizePolygon(poly) {
-  let p = poly.filter((q, i) => {
-    const n = poly[(i + 1) % poly.length];
-    return Math.abs(q[0] - n[0]) > EPS2 || Math.abs(q[1] - n[1]) > EPS2;
-  });
-  p = p.filter((q, i) => {
-    const a = p[(i + p.length - 1) % p.length], b = p[(i + 1) % p.length];
-    return Math.abs((q[0] - a[0]) * (b[1] - q[1]) - (q[1] - a[1]) * (b[0] - q[0])) > EPS2;
-  });
-  if (area2(p) < 0) p = [...p].reverse();
-  let k = 0;
-  p.forEach((q, i) => {
-    if (q[1] < p[k][1] - EPS2 || Math.abs(q[1] - p[k][1]) <= EPS2 && q[0] < p[k][0]) k = i;
-  });
-  return [...p.slice(k), ...p.slice(0, k)].map(([x, y]) => [cleanZero(r32(x)), cleanZero(r32(y))]);
-}
-var rectPoly = ([x0, y0, x1, y1]) => [[Math.min(x0, x1), Math.min(y0, y1)], [Math.max(x0, x1), Math.min(y0, y1)], [Math.max(x0, x1), Math.max(y0, y1)], [Math.min(x0, x1), Math.max(y0, y1)]];
-var bboxOf3 = (p) => [Math.min(...p.map((q) => q[0])), Math.min(...p.map((q) => q[1])), Math.max(...p.map((q) => q[0])), Math.max(...p.map((q) => q[1]))];
-function inPolygon2(p, poly) {
-  let inside2 = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const [xi, yi] = poly[i], [xj, yj] = poly[j];
-    if (yi > p[1] !== yj > p[1] && p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi) inside2 = !inside2;
-  }
-  return inside2;
-}
-function overlapArea(pa, pb) {
-  const [ax0, ay0, ax1, ay1] = bboxOf3(pa), [bx0, by0, bx1, by1] = bboxOf3(pb);
-  if (Math.min(ax1, bx1) <= Math.max(ax0, bx0) || Math.min(ay1, by1) <= Math.max(ay0, by0)) return 0;
-  const xs = [...new Set([...pa, ...pb].map((q) => q[0]))].sort((u, v) => u - v), ys = [...new Set([...pa, ...pb].map((q) => q[1]))].sort((u, v) => u - v);
-  let area3 = 0;
-  for (let i = 0; i + 1 < xs.length; i++) for (let j = 0; j + 1 < ys.length; j++) {
-    const c = [(xs[i] + xs[i + 1]) / 2, (ys[j] + ys[j + 1]) / 2];
-    if (inPolygon2(c, pa) && inPolygon2(c, pb)) area3 += (xs[i + 1] - xs[i]) * (ys[j + 1] - ys[j]);
-  }
-  return area3;
-}
-function edgesOf(roomId, poly) {
-  const out = [];
-  poly.forEach((a, i) => {
-    const b = poly[(i + 1) % poly.length];
-    if (Math.abs(a[1] - b[1]) <= EPS2) out.push({ room: roomId, axis: "X", c: a[1], lo: Math.min(a[0], b[0]), hi: Math.max(a[0], b[0]), out: b[0] > a[0] ? -1 : 1 });
-    else if (Math.abs(a[0] - b[0]) <= EPS2) out.push({ room: roomId, axis: "Y", c: a[0], lo: Math.min(a[1], b[1]), hi: Math.max(a[1], b[1]), out: b[1] > a[1] ? 1 : -1 });
-  });
-  return out;
-}
-var alongOf = (e, p) => e.axis === "X" ? p[0] : p[1];
-var acrossOf = (e, p) => e.axis === "X" ? p[1] : p[0];
-function compilePlan(input2, opts) {
-  const issues = [], adjustments = [];
-  const err = (code, message) => issues.push({ level: "error", code, message });
-  const warn = (code, message) => issues.push({ level: "warning", code, message });
-  const parsed = PlanSchema.safeParse(input2);
-  if (!parsed.success) {
-    for (const i of parsed.error.issues.slice(0, 60)) err("schema", `${i.path.join(".") || "(root)"}: ${i.message}`);
-    return { project: null, issues, adjustments };
-  }
-  const plan = parsed.data, D = plan.defaults, source = plan.source;
-  let toM = (p, _level) => p;
-  if (plan.units === "px") {
-    const cal = new Map(plan.levels.flatMap((l) => l.calibration ? [[l.id, l.calibration]] : []));
-    if (!plan.calibration && cal.size < plan.levels.length) {
-      err("calibration", 'units "px" need a calibration block (pxPerM, originPx) — for the plan or for every level');
-      return { project: null, issues, adjustments };
-    }
-    toM = ([x, y], level) => {
-      const c = level && cal.get(level) || plan.calibration || [...cal.values()][0];
-      return [(x - c.originPx[0]) / c.pxPerM, (c.originPx[1] - y) / c.pxPerM];
-    };
-    for (const [where, c] of [...plan.calibration ? [["plan", plan.calibration]] : [], ...[...cal].map(([l, c2]) => [`level ${l}`, c2])]) {
-      const all = c.methods ?? [], measured = all.filter((m) => !m.method.startsWith("symbol")), ms = measured.length ? measured : all;
-      if (ms.length < 2) warn("calibration.methods", `${where}: fewer than two independent scale estimates — ask for one known dimension to confirm the scale`);
-      else {
-        const vals = ms.map((m) => m.pxPerM), spread = (Math.max(...vals) - Math.min(...vals)) / c.pxPerM;
-        if (spread > 0.05) warn("calibration.agreement", `${where}: scale estimates differ by ${(spread * 100).toFixed(1)} % (> 5 %): ${ms.map((m) => `${m.method} ${m.pxPerM.toFixed(2)}`).join(", ")}`);
-      }
-    }
-  }
-  const regularize = plan.regularize ?? plan.units === "px";
-  const roomLevel = new Map(plan.rooms.map((r) => [r.id, r.level]));
-  const P = (p, at) => {
-    const q = toM(p, at && (roomLevel.get(at) ?? at));
-    return regularize ? [snap5(q[0]), snap5(q[1])] : [r32(q[0]), r32(q[1])];
-  };
-  const levels = new Map(plan.levels.map((l) => [l.id, l]));
-  const sortedLevels = [...plan.levels].sort((a, b) => a.floorZ - b.floorZ);
-  const lowest = sortedLevels[0];
-  const outlines = /* @__PURE__ */ new Map();
-  for (const r of plan.rooms) {
-    if (!levels.has(r.level)) err("room.level", `room "${r.id}": unknown level "${r.level}"`);
-    if (outlines.has(r.id)) err("room.id", `room "${r.id}": repeated id`);
-    const raw = r.rect ? rectPoly([...P([r.rect[0], r.rect[1]], r.level), ...P([r.rect[2], r.rect[3]], r.level)]) : r.polygon.map((q) => P(q, r.level));
-    outlines.set(r.id, raw);
-  }
-  if (regularize) regularizeWalls(plan, outlines, D.interiorWall, adjustments);
-  const polys = /* @__PURE__ */ new Map();
-  for (const r of plan.rooms) {
-    const poly = normalizePolygon(outlines.get(r.id));
-    polys.set(r.id, poly);
-    poly.forEach((a, i) => {
-      const b = poly[(i + 1) % poly.length];
-      if (Math.abs(a[0] - b[0]) > EPS2 && Math.abs(a[1] - b[1]) > EPS2) err("room.orthogonal", `room "${r.id}": edge ${i} is not axis-aligned — the generated shell needs orthogonal outlines`);
-    });
-    const lk = opts.lock?.rooms[r.id];
-    if (lk && (lk.vertices !== poly.length || Math.abs(lk.first[0] - poly[0][0]) > 0.3 || Math.abs(lk.first[1] - poly[0][1]) > 0.3)) err("ids.lock", `room "${r.id}": the outline changed its vertex count or first corner since the package was released — wall ids would shift (user data refers to them). Re-lock with --force-relock if this is intended.`);
-  }
-  if (opts.lock) {
-    for (const id3 of Object.keys(opts.lock.rooms)) if (!polys.has(id3)) err("ids.lock", `room "${id3}" was released and is missing now`);
-  }
-  const edges = new Map([...polys].map(([id3, p]) => [id3, edgesOf(id3, p)]));
-  const levelOfRoom = (id3) => plan.rooms.find((r) => r.id === id3)?.level;
-  for (const a of plan.rooms) for (const b of plan.rooms) {
-    if (a.id >= b.id || a.level !== b.level) continue;
-    if (overlapArea(polys.get(a.id), polys.get(b.id)) > 0.02 * 0.02) err("room.overlap", `rooms "${a.id}" and "${b.id}" overlap`);
-  }
-  const along = (axis, c, level) => axis === 0 ? P([c, 0], level)[0] : P([0, c], level)[1];
-  const roof = compileRoof({ plan, P, along, polys, err, warn });
-  for (const a of plan.rooms) for (const b of plan.rooms) {
-    if (a.id >= b.id || a.level !== b.level) continue;
-    for (const ea of edges.get(a.id)) for (const eb of edges.get(b.id)) {
-      if (ea.axis !== eb.axis || ea.out === eb.out) continue;
-      const gap = (eb.c - ea.c) * ea.out, overlap = Math.min(ea.hi, eb.hi) - Math.max(ea.lo, eb.lo);
-      if (gap > 5e-3 && gap < 0.5 && overlap > 0.3 && Math.abs(gap - D.interiorWall) > 0.015 && Math.abs(gap - D.exteriorWall) > 0.015) {
-        warn("wall.thickness", `wall between "${a.id}" and "${b.id}" is ${r32(gap)} m thick (interior ${D.interiorWall}, exterior ${D.exteriorWall}) — check the outlines; if the drawing really shows it, keep it (the shell fills the gap) and note it in the README`);
-      }
-    }
-  }
-  const gaps = /* @__PURE__ */ new Map();
-  const addGap = (roomId, g) => {
-    const l = gaps.get(roomId) ?? [];
-    l.push(g);
-    gaps.set(roomId, l);
-  };
-  const wallBetween = (a, b, p, w, what) => {
-    const ea = edges.get(a), eb = b === "exterior" ? null : edges.get(b);
-    if (!ea) {
-      err("ref", `${what}: unknown room "${a}"`);
-      return null;
-    }
-    if (b !== "exterior" && !eb) {
-      err("ref", `${what}: unknown room "${b}"`);
-      return null;
-    }
-    if (b !== "exterior" && levelOfRoom(a) !== levelOfRoom(b)) {
-      err("ref", `${what}: rooms "${a}" and "${b}" are on different levels`);
-      return null;
-    }
-    let best = null;
-    for (const e1 of ea) {
-      const t = alongOf(e1, p);
-      if (t < e1.lo - 0.05 || t > e1.hi + 0.05) continue;
-      const from = r32(t - w / 2), to = r32(t + w / 2);
-      if (from < e1.lo - 5e-3 || to > e1.hi + 5e-3) continue;
-      if (eb) {
-        for (const e2 of eb) {
-          if (e2.axis !== e1.axis || e2.out === e1.out) continue;
-          const gap = (e2.c - e1.c) * e1.out;
-          if (gap <= 0 || gap > 0.6 || from < e2.lo - 5e-3 || to > e2.hi + 5e-3) continue;
-          const mid = (e1.c + e2.c) / 2, off = Math.abs(acrossOf(e1, p) - mid), score = off + Math.abs(t - (from + to) / 2);
-          if (off > gap / 2 + 0.3) continue;
-          if (!best || score < best.score) best = { score, res: { axis: e1.axis, faces: [Math.min(e1.c, e2.c), Math.max(e1.c, e2.c)].map(r32), from, to, edgeA: e1, edgeB: e2 } };
-        }
-      } else {
-        const outer = r32(e1.c + e1.out * D.exteriorWall);
-        const blocked = plan.rooms.some((r) => r.id !== a && r.level === levelOfRoom(a) && edges.get(r.id).some((e) => e.axis === e1.axis && e.out !== e1.out && (e.c - e1.c) * e1.out > 0 && (e.c - e1.c) * e1.out < 0.6 && Math.min(e.hi, to) - Math.max(e.lo, from) > 0));
-        if (blocked) continue;
-        const score = Math.abs(acrossOf(e1, p) - (e1.c + outer) / 2);
-        if (score > 0.8) continue;
-        if (!best || score < best.score) best = { score, res: { axis: e1.axis, faces: [Math.min(e1.c, outer), Math.max(e1.c, outer)].map(r32), from, to, edgeA: e1, edgeB: null } };
-      }
-    }
-    if (!best) err("door.wall", `${what}: no wall ${b === "exterior" ? `of "${a}" on the outside of the building` : `shared by "${a}" and "${b}"`} holds a ${w} m opening at [${p.map(r32).join(", ")}] — move "at" onto the wall or check the outlines`);
-    return best?.res ?? null;
-  };
-  const doors = [];
-  for (const d of plan.doors) {
-    const [a, b] = d.between, what = `door "${d.id}"`;
-    const p = P(d.at, a), w = d.width;
-    const wall = wallBetween(a, b, p, w, what);
-    if (!wall) continue;
-    const opHeight = d.height ?? D.doorHeight, leafW = r32(w - 0.1);
-    const gap = { along: wall.axis, from_: wall.from, to: wall.to, across: wall.faces, width: r2(w), door_id: d.id, leaf: r2(leafW), height: opHeight };
-    addGap(a, gap);
-    if (b !== "exterior") addGap(b, { ...gap });
-    const base = {
-      id: d.id,
-      level: levelOfRoom(a),
-      rooms: [a, b],
-      floorZ: levels.get(levelOfRoom(a))?.floorZ ?? 0,
-      opening: { along: wall.axis, from: wall.from, to: wall.to, faces: [...wall.faces], width: r2(w), height: opHeight },
-      leafWidth: r2(leafW),
-      height: d.leafHeight ?? D.leafHeight,
-      type: d.type,
-      source: [d.source ?? source],
-      confidence: d.confidence ?? D.confidence
-    };
-    const u = wall.axis === "X" ? [1, 0] : [0, 1];
-    if (d.type === "hinged-single") {
-      const into = d.swingInto ?? (b === "exterior" ? a : b);
-      if (into !== a && into !== b) {
-        err("door.swing", `${what}: swingInto "${into}" is not one of ${a} / ${b}`);
-        continue;
-      }
-      const intoEdge = into === a ? wall.edgeA : into === "exterior" ? { c: r32(wall.edgeA.c + wall.edgeA.out * D.exteriorWall), out: -wall.edgeA.out } : wall.edgeB;
-      const n = wall.axis === "X" ? [0, -intoEdge.out] : [-intoEdge.out, 0];
-      const view = [-n[0], -n[1]], right = [view[1], -view[0]];
-      const side2 = d.hinge ?? "left";
-      const rightIsEnd = right[0] * u[0] + right[1] * u[1] > 0;
-      const hingeAtEnd = side2 === "right" ? rightIsEnd : !rightIsEnd;
-      const jamb = hingeAtEnd ? wall.to : wall.from, t = hingeAtEnd ? jamb - 0.05 : jamb + 0.05;
-      const face = intoEdge.c;
-      const hinge = wall.axis === "X" ? [r32(t), face] : [face, r32(t)];
-      const closedDir = hingeAtEnd ? [-u[0], -u[1]] : [u[0], u[1]];
-      doors.push({ ...base, hinge, closedDir: closedDir.map(cleanZero), openDir: n.map(cleanZero), hingeSide: side2, swingInto: into, openAngle: 90, slide: null });
-    } else {
-      const toEnd = (d.slideTo ?? "end") === "end", mid = r32((wall.faces[0] + wall.faces[1]) / 2);
-      const originT = toEnd ? wall.from : wall.to, dir = toEnd ? u : [-u[0], -u[1]];
-      const origin = wall.axis === "X" ? [originT, mid] : [mid, originT];
-      doors.push({ ...base, hinge: null, closedDir: null, openDir: null, hingeSide: null, swingInto: null, openAngle: null, slide: { origin, dir: dir.map(cleanZero), travel: r2(leafW) } });
-    }
-  }
-  const inSweep = (d, p) => {
-    const dx = p[0] - d.hinge[0], dy = p[1] - d.hinge[1];
-    return dx * d.closedDir[0] + dy * d.closedDir[1] >= 0 && dx * d.openDir[0] + dy * d.openDir[1] >= 0 && Math.hypot(dx, dy) <= d.leafWidth;
-  };
-  const hinged = doors.filter((d) => d.hinge && d.closedDir && d.openDir && d.swingInto !== "exterior");
-  for (let i = 0; i < hinged.length; i++) for (let j = i + 1; j < hinged.length; j++) {
-    const a = hinged[i], b = hinged[j];
-    if (a.level !== b.level || a.swingInto !== b.swingInto || Math.hypot(a.hinge[0] - b.hinge[0], a.hinge[1] - b.hinge[1]) > a.leafWidth + b.leafWidth) continue;
-    let hits = 0;
-    for (let u = 0.05; u < a.leafWidth; u += 0.1) for (let v = 0.05; v < a.leafWidth; v += 0.1) {
-      const p = [a.hinge[0] + a.closedDir[0] * u + a.openDir[0] * v, a.hinge[1] + a.closedDir[1] * u + a.openDir[1] * v];
-      if (inSweep(a, p) && inSweep(b, p)) hits++;
-    }
-    if (hits >= 2) warn("door.swingOverlap", `doors "${a.id}" and "${b.id}" sweep the same floor in "${a.swingInto}" — check the swing sides on the drawing (an entrance door may open outwards: swingInto "exterior")`);
-  }
-  for (const g of plan.passages) {
-    const [a, b] = g.between, p = P(g.at, a), wall = wallBetween(a, b, p, g.width, `passage ${a} ↔ ${b}`);
-    if (!wall) continue;
-    const gap = { along: wall.axis, from_: wall.from, to: wall.to, across: wall.faces, width: r2(g.width), door_id: null, leaf: null, height: g.height ?? null };
-    addGap(a, gap);
-    if (b !== "exterior") addGap(b, { ...gap });
-  }
-  const windows = /* @__PURE__ */ new Map();
-  const addWindow = (w, p) => {
-    const es = edges.get(w.room);
-    if (!es) {
-      err("ref", `window "${w.id}": unknown room "${w.room}"`);
-      return;
-    }
-    let best = null, bd = Infinity;
-    for (const e of es) {
-      const t2 = alongOf(e, p), dd = Math.abs(acrossOf(e, p) - e.c) + (t2 < e.lo ? e.lo - t2 : t2 > e.hi ? t2 - e.hi : 0);
-      if (dd < bd) {
-        bd = dd;
-        best = e;
-      }
-    }
-    if (!best || bd > 0.6) {
-      err("window.wall", `window "${w.id}": "at" is not on a wall of "${w.room}"`);
-      return;
-    }
-    const t = alongOf(best, p), from = r32(t - w.width / 2), to = r32(t + w.width / 2);
-    if (from < best.lo - 5e-3 || to > best.hi + 5e-3) err("window.span", `window "${w.id}": ${w.width} m does not fit the wall (${r32(best.lo)}…${r32(best.hi)})`);
-    const interior = plan.rooms.some((r) => r.id !== w.room && r.level === levelOfRoom(w.room) && edges.get(r.id).some((e) => e.axis === best.axis && e.out !== best.out && (e.c - best.c) * best.out > 0 && (e.c - best.c) * best.out < 0.6 && Math.min(e.hi, to) - Math.max(e.lo, from) > 0));
-    if (interior) warn("window.interior", `window "${w.id}" sits on an interior wall of "${w.room}"`);
-    const sill = w.sill ?? (w.passable ? 0 : D.sill), head = w.head ?? D.head;
-    const list = windows.get(w.room) ?? [];
-    const fz = levels.get(levelOfRoom(w.room))?.floorZ ?? 0;
-    list.push({ id: w.id, kind: sill < 0.05 ? "window (floor-to-lintel)" : "window", plane_axis: best.axis === "X" ? "Y" : "X", inner: best.c, from_: from, to, sill_z: r32(fz + sill), head_z: r32(fz + head) });
-    windows.set(w.room, list);
-  };
-  for (const w of plan.windows) {
-    if (!edges.has(w.room)) {
-      err("ref", `window "${w.id}": unknown room "${w.room}"`);
-      continue;
-    }
-    addWindow(w, P(w.at, w.room));
-  }
-  for (const w of roof.windows) addWindow(w, w.at);
-  const defaultCut = (l) => {
-    const heads = plan.windows.filter((w) => levelOfRoom(w.room) === l.id).map((w) => w.head ?? D.head);
-    return r32(Math.min(l.ceiling - 0.05, Math.max(2.3, D.doorHeight + 0.1, ...heads.map((h) => h + 0.1))));
-  };
-  const stairs = [];
-  const stairOpenings = /* @__PURE__ */ new Map();
-  for (const s of plan.stairs) {
-    const lf = levels.get(s.from), lt = levels.get(s.to);
-    if (!lf || !lt) {
-      err("stairs.level", `stairs "${s.id}": unknown level`);
-      continue;
-    }
-    const [a, b] = [P([s.box[0], s.box[1]], s.from), P([s.box[2], s.box[3]], s.from)];
-    const box = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
-    const rise = lt.floorZ - lf.floorZ, riser = r32(rise / (2 * s.risers)), run = r32((s.risers - 1) * s.tread);
-    if (riser > 0.2 || riser < 0.14) warn("stairs.riser", `stairs "${s.id}": riser ${riser} m (comfortable: 0.15–0.19)`);
-    const rotate = { S: 0, E: 90, N: 180, W: 270 }[s.up], mirror = s.turn === "left", across = rotate % 180 ? box[3] - box[1] : box[2] - box[0];
-    const deep = rotate % 180 ? box[2] - box[0] : box[3] - box[1], width = 2 * s.flightWidth + s.gap;
-    if (Math.abs(across - width) > 0.06) warn("stairs.width", `stairs "${s.id}": box is ${r32(across)} m wide across the flights, they need ${r32(width)} m`);
-    if (deep < run + s.flightWidth * 0.8) err("stairs.depth", `stairs "${s.id}": box is too short for ${s.risers - 1} treads of ${s.tread} m plus a landing`);
-    const cy1 = box[1] + deep;
-    stairs.push({
-      id: s.id,
-      kind: "u-turn",
-      fromLevel: s.from,
-      toLevel: s.to,
-      bbox: box,
-      risers: s.risers,
-      riser,
-      tread: s.tread,
-      flightWidth: s.flightWidth,
-      gap: s.gap,
-      landingZ: r32(rise / 2),
-      topZ: r32(rise),
-      split: r32(box[0] + s.flightWidth + s.gap / 2),
-      run,
-      landingEdge: r32(cy1 - run),
-      confidence: s.confidence ?? D.confidence,
-      ...s.note ? { note: s.note } : {},
-      ...rotate || mirror ? { orient: { rotate, mirror } } : {}
-    });
-    const c = [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2];
-    const upper = plan.rooms.find((r) => r.level === s.to && inPolygon2(c, polys.get(r.id)));
-    if (!upper) err("stairs.arrival", `stairs "${s.id}": no room of level "${s.to}" contains the stair box`);
-    else stairOpenings.set(upper.id, box);
-    const lower = plan.rooms.find((r) => r.level === s.from && inPolygon2(c, polys.get(r.id)));
-    if (!lower) err("stairs.start", `stairs "${s.id}": no room of level "${s.from}" contains the stair box`);
-  }
-  const roofWindows = /* @__PURE__ */ new Map();
-  for (const w of plan.roofWindows) {
-    if (!polys.has(w.room)) {
-      err("ref", `roof window "${w.id}": unknown room "${w.room}"`);
-      continue;
-    }
-    const a = P([w.rect[0], w.rect[1]], w.room), b = P([w.rect[2], w.rect[3]], w.room);
-    roofWindows.set(w.room, [...roofWindows.get(w.room) ?? [], { id: w.id, plan_rect: [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])].map(r32) }]);
-  }
-  const ceilings = /* @__PURE__ */ new Map();
-  for (const r of plan.rooms) {
-    const lv = levels.get(r.level), poly = polys.get(r.id), fz = lv?.floorZ ?? 0;
-    const flat = r32(fz + (r.ceiling ?? lv?.slope?.flat ?? lv?.ceiling ?? 2.6)), under = roof.model?.byLevel(r.level) ?? [];
-    const profile = under.length ? roofCeiling(under, flat, fz, poly, (roofWindows.get(r.id) ?? []).map((w) => w.plan_rect)) : flatCeiling(flat, fz, poly);
-    ceilings.set(r.id, { json: profile.kind === "roof" ? { kind: "roof", flat_z: flat } : { kind: "flat", z: flat }, profile });
-  }
-  for (const w of plan.roofWindows) {
-    if (!polys.has(w.room)) continue;
-    const r = plan.rooms.find((x) => x.id === w.room), c = ceilings.get(w.room).profile, under = roof.model?.byLevel(r.level) ?? [];
-    if (c.kind !== "roof") {
-      warn("roofWindow.flat", `roof window "${w.id}": room "${w.room}" has no sloped ceiling`);
-      continue;
-    }
-    const [x0, y0, x1, y1] = roofWindows.get(w.room).find((q) => q.id === w.id).plan_rect;
-    const fs7 = surfaceFacets({ pieces: under, which: "inner", cap: c.flatZ }, [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]);
-    const planes = new Set(fs7.map((f) => `${r32(f.plane.gx)},${r32(f.plane.gy)},${r32(f.plane.z0)}`));
-    if (planes.size !== 1 || fs7[0].plane.gx === 0 && fs7[0].plane.gy === 0) err("roofWindow.plane", `roof window "${w.id}": it must lie within one sloped plane of the ceiling of "${w.room}" (it crosses ${planes.size} planes or the flat top)`);
-  }
-  if (plan.roof) for (const lv of plan.levels) {
-    if (!lv.slope) continue;
-    const s = lv.slope, ax = s.ridge === "X" ? 1 : 0, pts = plan.rooms.filter((r) => r.level === lv.id && r.ceiling === void 0).flatMap((r) => polys.get(r.id));
-    if (!pts.length || s.lines.length < 1) continue;
-    const lo = Math.min(...pts.map((q) => q[ax])), hi = Math.max(...pts.map((q) => q[ax])), ridge = s.ridgeAt !== void 0 ? along(ax, s.ridgeAt, lv.id) : (lo + hi) / 2;
-    const lines = s.lines.map((l) => ({ at: along(ax, l.at, lv.id), height: l.height }));
-    const k = lines.length === 2 ? Math.abs(lines[1].height - lines[0].height) / Math.max(1e-6, Math.abs(lines[1].at - lines[0].at)) : Math.tan(s.pitch * Math.PI / 180);
-    const own2 = {
-      id: "slope",
-      kind: "part",
-      level: lv.id,
-      region: [-1e6, -1e6, 1e6, 1e6],
-      inner: [-1e6, -1e6, 1e6, 1e6],
-      cover: [-1e6, -1e6, 1e6, 1e6],
-      planes: atticPlanes({ kind: "attic", ...ax === 1 ? { ridge_y: ridge } : { ridge_x: ridge }, z_at_ridge: lv.floorZ + lines[0].height + k * Math.abs(ridge - lines[0].at), slope: k })
-    };
-    for (const r of plan.rooms.filter((x) => x.level === lv.id && x.ceiling === void 0)) {
-      const poly = polys.get(r.id), fromSlope = roofCeiling([own2], r32(lv.floorZ + (s.flat ?? lv.ceiling)), lv.floorZ, poly, []), c = ceilings.get(r.id).profile;
-      const worst = Math.max(...[...poly, ...poly.map((q, i) => {
-        const n = poly[(i + 1) % poly.length];
-        return [(q[0] + n[0]) / 2, (q[1] + n[1]) / 2];
-      })].map((q) => Math.abs(fromSlope.heightAt(q[0], q[1]) - c.heightAt(q[0], q[1]))));
-      if (worst > 0.05) warn("roof.slope", `room "${r.id}": the roof gives a ceiling up to ${Math.round(worst * 100)} cm away from the level slope — check the knee height, the pitch and the ridge`);
-    }
-  }
-  for (const r of plan.rooms) {
-    const c = ceilings.get(r.id).profile, fz = levels.get(r.level)?.floorZ ?? 0;
-    if (c.kind !== "roof") continue;
-    const es = edges.get(r.id), inward = (e) => e.axis === "X" ? [0, -e.out * 0.01] : [-e.out * 0.01, 0];
-    const ceilingOver = (e, from, to) => Math.min(...[from + 0.01, (from + to) / 2, to - 0.01].map((t) => {
-      const d = inward(e), p = e.axis === "X" ? [t, e.c] : [e.c, t];
-      return c.heightAt(p[0] + d[0], p[1] + d[1]);
-    }));
-    for (const o of windows.get(r.id) ?? []) {
-      const e = es.find((x) => x.axis === (o.plane_axis === "Y" ? "X" : "Y") && Math.abs(x.c - o.inner) < 1e-6 && o.from_ >= x.lo - 0.01 && o.to <= x.hi + 0.01);
-      if (e && o.head_z - fz > ceilingOver(e, o.from_, o.to) + 0.01) err("window.roof", `window "${o.id}": its head (${r32(o.head_z - fz)} m) is above the roof plane at its wall (${r32(ceilingOver(e, o.from_, o.to))} m) — lower it, or put it in a dormer`);
-    }
-    for (const g of gaps.get(r.id) ?? []) {
-      const e = es.find((x) => x.axis === g.along && g.across.some((a) => Math.abs(a - x.c) < 1e-6) && g.from_ >= x.lo - 0.01 && g.to <= x.hi + 0.01), h = g.height ?? (g.door_id ? D.doorHeight : null);
-      if (e && h !== null && h > ceilingOver(e, g.from_, g.to) + 0.01) err("door.roof", `${g.door_id ? `door "${g.door_id}"` : "passage"} in "${r.id}": ${h} m high, the roof plane at its wall is ${r32(ceilingOver(e, g.from_, g.to))} m`);
-    }
-  }
-  const rooms = plan.rooms.map((r) => {
-    const poly = polys.get(r.id), lv = levels.get(r.level), floorZ = lv?.floorZ ?? 0, area3 = r2(Math.abs(area2(poly)) / 2);
-    const bb = bboxOf3(poly);
-    const ce = ceilings.get(r.id);
-    if (r.areaPrinted && Math.abs(area3 - r.areaPrinted) / r.areaPrinted > 0.1) {
-      const fs7 = ce.profile.kind === "roof" ? ce.profile.facets() : null, all = Math.abs(area2(poly)) / 2;
-      const usable = fs7 ? r2(all - areaBelow(fs7, floorZ + 2.2) + (areaBelow(fs7, floorZ + 2.2) - areaBelow(fs7, floorZ + 1.4)) / 2) : null;
-      if (usable === null || Math.abs(usable - r.areaPrinted) / r.areaPrinted > 0.1) warn("room.area", `room "${r.id}": computed area ${area3} m²${usable !== null ? ` (usable under the roof ${usable} m²)` : ""} differs from the printed ${r.areaPrinted} m² by more than 10 %`);
-    }
-    return {
-      id: r.id,
-      name: r.name,
-      ...r.label ? { label: r.label } : {},
-      level: r.level,
-      floor_z: floorZ,
-      area: area3,
-      area_data: r.areaPrinted ?? area3,
-      id_source: r.source ?? source,
-      bbox: bb,
-      polygon: poly,
-      rectangular: poly.length === 4,
-      ceiling: ce.json,
-      stair_opening: stairOpenings.get(r.id) ?? null,
-      doors: gaps.get(r.id) ?? [],
-      openings: windows.get(r.id) ?? [],
-      roof_windows: roofWindows.get(r.id) ?? [],
-      kind: r.kind,
-      tags: r.tags ?? []
-    };
-  });
-  const cat = opts.catalog && new Map(opts.catalog.map((c) => [c.id, c]));
-  const keys = /* @__PURE__ */ new Map();
-  const sideEdge = (room, side2, along2) => {
-    const axis = side2 === "N" || side2 === "S" ? "X" : "Y", out = side2 === "N" || side2 === "E" ? 1 : -1;
-    const cand = edges.get(room).filter((e) => e.axis === axis && e.out === out);
-    const holding = along2 === void 0 ? [] : cand.filter((e) => along2 >= e.lo - 0.01 && along2 <= e.hi + 0.01);
-    const pick3 = holding.length ? holding : cand;
-    return pick3.reduce((b, e) => (holding.length ? (e.c - b.c) * out > 0 : e.hi - e.lo > b.hi - b.lo) ? e : b);
-  };
-  const items = [];
-  for (const f of plan.furniture) {
-    const it = cat ? cat.get(f.catalogId) : { id: f.catalogId, dimensions: { w: 0, d: 0, h: 0 } };
-    const poly = polys.get(f.room);
-    if (!it) {
-      err("furniture.catalog", `furniture in "${f.room}": unknown catalog item "${f.catalogId}" (see data/furnitureCatalog.json)`);
-      continue;
-    }
-    if (!poly) {
-      err("ref", `furniture "${f.catalogId}": unknown room "${f.room}"`);
-      continue;
-    }
-    const vd = it.variants?.find((v) => v.id === f.variant)?.dimensions ?? {};
-    const dims = { ...it.dimensions, ...vd, ...f.dims ?? {} };
-    if (cat && f.variant && !it.variants?.some((v) => v.id === f.variant)) err("furniture.variant", `furniture "${f.catalogId}" in "${f.room}": unknown variant "${f.variant}" (${(it.variants ?? []).map((v) => v.id).join(", ") || "no variants"})`);
-    let x, y, rot;
-    if (f.wall) {
-      const half = dims.d / 2 + 5e-3;
-      const along2 = f.along !== void 0 ? plan.units === "px" ? P(f.wall === "N" || f.wall === "S" ? [f.along, 0] : [0, f.along], f.room)[f.wall === "N" || f.wall === "S" ? 0 : 1] : f.along : void 0;
-      const e = sideEdge(f.room, f.wall, along2), t = along2 ?? (e.lo + e.hi) / 2;
-      if (f.wall === "S") {
-        x = t;
-        y = e.c + half;
-        rot = 0;
-      } else if (f.wall === "N") {
-        x = t;
-        y = e.c - half;
-        rot = 180;
-      } else if (f.wall === "W") {
-        x = e.c + half;
-        y = t;
-        rot = 270;
-      } else {
-        x = e.c - half;
-        y = t;
-        rot = 90;
-      }
-    } else if (f.at) {
-      [x, y] = P(f.at, f.room);
-      rot = f.rot ?? 0;
-    } else {
-      err("furniture.place", `furniture "${f.catalogId}" in "${f.room}": give "at" (+ rot) or "wall" (+ along)`);
-      continue;
-    }
-    if (!inPolygon2([x, y], poly)) warn("furniture.outside", `furniture "${f.catalogId}" in "${f.room}": centre [${r32(x)}, ${r32(y)}] is outside the room`);
-    const ce = ceilings.get(f.room)?.profile;
-    if (ce?.kind === "roof") {
-      const top = (f.elevation ?? 0) + (dims.h ?? 0), a = rot * Math.PI / 180;
-      const ceilingAt2 = (u, v) => ce.heightAt(x + u * Math.cos(a) - v * Math.sin(a), y + u * Math.sin(a) + v * Math.cos(a));
-      const low = Math.min(...[[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => ceilingAt2(u * dims.w / 2, v * dims.d / 2)));
-      if (top > low + 0.02) warn("furniture.ceiling", `furniture "${f.catalogId}" in "${f.room}": ${r32(top)} m high but the sloped ceiling is ${r32(low)} m above part of it — move it towards the ridge, pick a lower variant or give lower "dims"`);
-    }
-    const base = `${f.room}-${f.catalogId}`, n = (keys.get(base) ?? 0) + 1;
-    keys.set(base, n);
-    const key = f.key ?? (n === 1 ? base : `${base}-${n}`);
-    items.push({
-      key,
-      room: f.room,
-      catalogId: f.catalogId,
-      variant: f.variant ?? null,
-      x: r32(x),
-      y: r32(y),
-      rot,
-      source: f.source ?? source,
-      basis: f.basis ?? D.basis,
-      note: f.note ?? "",
-      ...f.dims ? { dims: f.dims } : {},
-      ...f.elevation !== void 0 ? { elevation: f.elevation } : {},
-      ...f.group ? { group: f.group } : {},
-      ...f.materialId ? { materialId: f.materialId } : {}
-    });
-  }
-  const seen = /* @__PURE__ */ new Set();
-  for (const it of items) {
-    if (seen.has(it.key)) err("furniture.key", `furniture key "${it.key}" is repeated`);
-    seen.add(it.key);
-  }
-  const points = [];
-  const typeCount = /* @__PURE__ */ new Map();
-  for (const q of plan.electrical) {
-    const poly = polys.get(q.room);
-    if (!poly) {
-      err("ref", `electrical point "${q.label}": unknown room "${q.room}"`);
-      continue;
-    }
-    let x, y;
-    if (q.wall) {
-      const e = sideEdge(q.room, q.wall, q.along), al = q.along ?? (e.lo + e.hi) / 2;
-      [x, y] = q.wall === "S" || q.wall === "N" ? [al, e.c] : [e.c, al];
-    } else if (q.at) [x, y] = P(q.at, q.room);
-    else {
-      err("electrical.place", `electrical point "${q.label}": give "at" or "wall" + "along"`);
-      continue;
-    }
-    const onWall = edges.get(q.room).some((e) => Math.abs(acrossOf(e, [x, y]) - e.c) <= 0.05 && alongOf(e, [x, y]) >= e.lo - 0.01 && alongOf(e, [x, y]) <= e.hi + 0.01);
-    if (!onWall) warn("electrical.wall", `electrical point "${q.label}" in "${q.room}" is not on a wall (within 5 cm) — the engine skips it`);
-    const prefix = q.type.startsWith("socket") ? "S" : q.type.startsWith("switch") ? "SW" : q.type === "board" ? "B" : "P";
-    const n = (typeCount.get(prefix) ?? 0) + 1;
-    typeCount.set(prefix, n);
-    points.push({ id: q.id ?? `${prefix}${n}`, type: q.type, roomId: q.room, x: r32(x), y: r32(y), heightAFFL: q.height, label: q.label, source, status: "source", ...q.width ? { width: q.width } : {}, ...q.notes ? { notes: q.notes } : {} });
-  }
-  let site = null;
-  if (plan.site) {
-    const all = [...polys.values()].flat(), [bx0, by0, bx1, by1] = bboxOf3(all), t = D.exteriorWall;
-    const ground = plan.rooms.filter((r) => r.level === lowest.id).map((r) => polys.get(r.id));
-    const footprint = outerOutline(ground, t).map(([x, y]) => [r32(x), r32(y)]);
-    const m = plan.site.margin ?? 6;
-    const boundary = plan.site.boundary ? plan.site.boundary.map((q) => P(q, lowest.id)) : [[bx0 - t - m, by0 - t - m], [bx1 + t + m, by0 - t - m], [bx1 + t + m, by1 + t + m], [bx0 - t - m, by1 + t + m]].map(([x, y]) => [r32(x), r32(y)]);
-    site = { footprint, boundary, groundLevel: plan.site.groundLevel, levelId: lowest.id };
-    if (all.some((q) => !inPolygon2(q, boundary))) err("site.boundary", "the building is not inside the plot boundary");
-  }
-  const sun = plan.sun ? { lat: plan.sun.lat, lon: plan.sun.lon, gridAzimuthX: plan.sun.northAzimuthX, convergence: 0, trueAzimuthX: plan.sun.northAzimuthX, confidence: plan.sun.confidence, uncertaintyDeg: plan.sun.confidence === "confirmed" ? 2 : 15, timeZone: plan.sun.timeZone, ...plan.sun.placeName ? { placeName: plan.sun.placeName } : {} } : void 0;
-  if (sun) {
-    try {
-      new Intl.DateTimeFormat("en-US", { timeZone: sun.timeZone });
-    } catch {
-      err("sun.timeZone", `unknown IANA time zone "${sun.timeZone}"`);
-    }
-  }
-  const viewpoints = plan.viewpoints.map((v) => {
-    const lv = v.level === "SITE" ? lowest.id : v.level, p = P(v.at, lv), look = P([v.look[0], v.look[1]], lv);
-    return { id: v.id, name: v.name, p, level: v.level, look: [look[0], look[1], v.look[2]], fov: v.fov, hint: v.hint };
-  });
-  const modules = [...site ? ["site"] : [], ...plan.assets?.environment ? ["environment"] : [], ...sun ? ["sun"] : [], ...stairs.length ? ["stairs"] : []];
-  if (plan.assets?.site && !site) err("assets.site", 'a terrain model needs the "site" block');
-  const dv = plan.defaultView;
-  const project = {
-    schema: "home-simulator/project",
-    version: 1,
-    manifest: {
-      projectId: plan.project.id,
-      name: plan.project.name,
-      ...plan.project.description ? { description: plan.project.description } : {},
-      ...plan.project.documentTitle ? { documentTitle: plan.project.documentTitle } : {},
-      ...plan.project.language ? { language: plan.project.language } : {},
-      units: "m",
-      coordinateSystem: { name: "LCS", description: plan.project.origin ?? "origin at the outer corner of the building (bottom-left of the plan); +X right on the plan, +Y up on the plan, +Z up; Z = 0 is the finished floor of the lowest level", up: "Z", handedness: "right" },
-      buildingType: plan.project.buildingType,
-      levels: sortedLevels.map((l) => ({ id: l.id, name: l.name, floorZ: l.floorZ })),
-      dataSources: plan.dataSources ?? { rooms: source, doors: source, interiors: source, electrical: source },
-      modules,
-      capabilities: plan.capabilities ?? ["interiors", "electrical", "variants", "walk"],
-      defaultView: { levelId: dv?.level ?? lowest.id, roomId: dv?.room ?? null, view: dv?.view ?? (plan.project.buildingType === "apartment" ? "interior" : "exterior") },
-      metadata: plan.project.metadata ?? {}
-    },
-    building: {
-      rooms: { levels: Object.fromEntries(sortedLevels.map((l) => [l.id, { name: l.name, floor_z: l.floorZ, cut_height: l.cutHeight ?? defaultCut(l), plan_wall_offset: r32(D.interiorWall / 2) }])), rooms },
-      doors,
-      ...plan.windows.some((w) => w.passable) ? { doorFacts: { passableOpenings: plan.windows.filter((w) => w.passable).map((w) => w.id) } } : {},
-      ...stairs.length ? { stairs } : {},
-      shell: { exteriorWall: D.exteriorWall, slab: D.slab },
-      ...roof.json ? { roof: roof.json } : {}
-    },
-    interiors: { items, notIncluded: plan.notIncluded, ...plan.notes ? { notes: plan.notes } : {} },
-    electrical: { points },
-    ...site ? { site } : {},
-    ...sun ? { sun } : {},
-    ...plan.assets ? { assets: plan.assets } : {},
-    ...plan.catalog ? { catalog: plan.catalog } : {},
-    ...plan.views ? { views: plan.views } : {},
-    ...viewpoints.length ? { viewpoints } : {}
-  };
-  return { project: issues.some((i) => i.level === "error") ? null : project, issues, adjustments };
-}
-function regularizeWalls(plan, outlines, t, log) {
-  for (const axis of [0, 1]) {
-    for (const lv of plan.levels) {
-      const ids = plan.rooms.filter((r) => r.level === lv.id).map((r) => r.id);
-      const vals = ids.flatMap((id3) => outlines.get(id3).map((q) => q[axis])).sort((a, b) => a - b);
-      const clusters = [];
-      for (const v of vals) {
-        const c = clusters[clusters.length - 1];
-        if (c && v - c[c.length - 1] <= 0.04) c.push(v);
-        else clusters.push([v]);
-      }
-      const map2 = /* @__PURE__ */ new Map();
-      for (const c of clusters) {
-        const m = snap5(c.reduce((s, v) => s + v, 0) / c.length);
-        for (const v of c) map2.set(v, m);
-      }
-      for (const id3 of ids) outlines.set(id3, outlines.get(id3).map((q) => {
-        const n = [q[0], q[1]];
-        n[axis] = map2.get(q[axis]) ?? q[axis];
-        return n;
-      }));
-    }
-    const along = axis === 0 ? "Y" : "X", o = 1 - axis;
-    for (const a of plan.rooms) for (const b of plan.rooms) {
-      if (a.level !== b.level || a.id === b.id) continue;
-      for (const ea of edgesOf(a.id, normalizePolygon(outlines.get(a.id))).filter((e) => e.axis === along && e.out === 1)) {
-        for (const eb of edgesOf(b.id, normalizePolygon(outlines.get(b.id))).filter((e) => e.axis === along && e.out === -1)) {
-          const gap = eb.c - ea.c, overlap = Math.min(ea.hi, eb.hi) - Math.max(ea.lo, eb.lo);
-          if (gap <= 0.01 || overlap < 0.3 || Math.abs(gap - t) < 2e-3 || Math.abs(gap - t) > 0.08) continue;
-          const c = (ea.c + eb.c) / 2, na = snap5(c - t / 2), nb = r32(na + t);
-          const move = (poly, e, v) => poly.map((q) => Math.abs(q[axis] - e.c) < 1e-9 && q[o] >= e.lo - 1e-9 && q[o] <= e.hi + 1e-9 ? axis === 0 ? [v, q[1]] : [q[0], v] : q);
-          outlines.set(a.id, move(outlines.get(a.id), ea, na));
-          outlines.set(b.id, move(outlines.get(b.id), eb, nb));
-          log.push(`wall ${a.id} | ${b.id}: ${r32(gap)} m → ${t} m (centre line kept at ${r32(c)})`);
-        }
-      }
-    }
-  }
+// packages/core/src/solid/slice.ts
+var loops = (cs) => cs.toPolygons().map((p) => p.map((q) => [q[0], q[1]]));
+var LOW_CUT = 0.05;
+function wallSection(keep, m, floor, cut) {
+  return loops(keep(keep(m.slice(floor + LOW_CUT)).add(keep(m.slice(Math.max(floor + LOW_CUT, cut))))));
 }
 
 // node_modules/manifold-3d/manifold.js
@@ -23094,7 +21666,7 @@ async function Module(moduleArg = {}) {
       return joinType == "Round" ? 1 : joinType == "Miter" ? 2 : 0;
     }
     const CrossSectionCtor = Module2.CrossSection;
-    function cross2(polygons, fillRule = "Positive") {
+    function cross3(polygons, fillRule = "Positive") {
       if (polygons instanceof CrossSectionCtor) {
         return polygons;
       } else {
@@ -23153,14 +21725,14 @@ async function Module(moduleArg = {}) {
     Module2.CrossSection.prototype.revolve = function(circularSegments = 0, revolveDegrees = 360) {
       return Module2._Revolve(this._ToPolygons(), circularSegments, revolveDegrees);
     };
-    Module2.CrossSection.prototype.add = function(other2) {
-      return this._add(cross2(other2));
+    Module2.CrossSection.prototype.add = function(other) {
+      return this._add(cross3(other));
     };
-    Module2.CrossSection.prototype.subtract = function(other2) {
-      return this._subtract(cross2(other2));
+    Module2.CrossSection.prototype.subtract = function(other) {
+      return this._subtract(cross3(other));
     };
-    Module2.CrossSection.prototype.intersect = function(other2) {
-      return this._intersect(cross2(other2));
+    Module2.CrossSection.prototype.intersect = function(other) {
+      return this._intersect(cross3(other));
     };
     Module2.CrossSection.prototype.toPolygons = function() {
       const vec = this._ToPolygons();
@@ -23438,7 +22010,7 @@ async function Module(moduleArg = {}) {
       return function(...args) {
         if (args.length == 1) args = args[0];
         const v = new Module2.Vector_crossSection();
-        for (const cs of args) v.push_back(cross2(cs));
+        for (const cs of args) v.push_back(cross3(cs));
         const result = Module2["_crossSection" + name](v);
         v.delete();
         return result;
@@ -24188,18 +22760,18 @@ async function Module(moduleArg = {}) {
   var delayFunction;
   var init_ClassHandle = () => {
     let proto = ClassHandle.prototype;
-    Object.assign(proto, { isAliasOf(other2) {
+    Object.assign(proto, { isAliasOf(other) {
       if (!(this instanceof ClassHandle)) {
         return false;
       }
-      if (!(other2 instanceof ClassHandle)) {
+      if (!(other instanceof ClassHandle)) {
         return false;
       }
       var leftClass = this.$$.ptrType.registeredClass;
       var left = this.$$.ptr;
-      other2.$$ = other2.$$;
-      var rightClass = other2.$$.ptrType.registeredClass;
-      var right = other2.$$.ptr;
+      other.$$ = other.$$;
+      var rightClass = other.$$.ptrType.registeredClass;
+      var right = other.$$.ptr;
       while (leftClass.baseClass) {
         left = leftClass.upcast(left);
         leftClass = leftClass.baseClass;
@@ -25849,6 +24421,11 @@ async function Module(moduleArg = {}) {
 var manifold_default = Module;
 
 // packages/core/src/solid/wasm.ts
+function kernelMessage(e) {
+  if (e instanceof Error) return e.message;
+  if (typeof e === "number") return `the solid kernel stopped on this geometry (internal error ${e})`;
+  return String(e);
+}
 var shared = null;
 function loadGeometry(o = {}) {
   const make = () => manifold_default({ ...o }).then((m) => {
@@ -25861,6 +24438,2287 @@ function loadGeometry(o = {}) {
     throw e;
   });
   return shared;
+}
+
+// packages/core/src/solid/levels.ts
+function wallTop(rooms, floorZ) {
+  let top = 0;
+  for (const r of rooms) top = Math.max(top, r.floorZ + r.ceiling.range()[1]);
+  return top > floorZ ? top : floorZ + 2.6;
+}
+var builtLevels = (b) => b.levels.filter((l) => roomsOfLevel(b, l.id).length);
+var nextBuilt = (b, level) => {
+  const L = builtLevels(b), i = L.findIndex((l) => l.id === level);
+  return L[i + 1] ?? null;
+};
+var grownRooms = (b, level) => roomsOfLevel(b, level).map((r) => offsetPolygon(r.polygon, b.shell.exteriorWall));
+function levelFrame(b, level) {
+  const i = b.levels.findIndex((l) => l.id === level), floor = b.levels[i]?.floorZ ?? 0, next = b.levels[i + 1], slab = b.shell.slab;
+  const pieces = roofPieces(b, level);
+  if (pieces.length) {
+    let under = -Infinity;
+    for (const p of grownRooms(b, level)) {
+      const r = surfaceRange({ pieces, which: "region" }, p);
+      if (r) under = Math.max(under, r[1]);
+    }
+    const up = nextBuilt(b, level), top2 = snap(Math.max(under, up ? up.floorZ - slab : -Infinity, floor + 0.01));
+    return { level, bottom: snap(floor - slab), floor, wallTop: top2, top: top2, last: !up, roofed: true };
+  }
+  const walls = wallTop(roomsOfLevel(b, level), floor);
+  if (!next) return { level, bottom: snap(floor - slab), floor, wallTop: snap(walls), top: snap(walls + slab), last: true, roofed: false };
+  const top = snap(Math.max(floor + 0.01, next.floorZ - slab));
+  return { level, bottom: snap(floor - slab), floor, wallTop: snap(Math.min(walls, top)), top, last: false, roofed: false };
+}
+function wallBounds(b) {
+  const levels = builtLevels(b), t = b.shell.exteriorWall;
+  if (!levels.length) return { min: [0, 0, 0], max: [1, 1, 1] };
+  const pts = levels.flatMap((l) => roomsOfLevel(b, l.id).flatMap((r) => r.polygon)), frames = levels.map((l) => levelFrame(b, l.id));
+  const box = {
+    min: [snap(Math.min(...pts.map((p) => p[0])) - t), snap(Math.min(...pts.map((p) => p[1])) - t), Math.min(...frames.map((f) => f.bottom))],
+    max: [snap(Math.max(...pts.map((p) => p[0])) + t), snap(Math.max(...pts.map((p) => p[1])) + t), Math.max(...frames.map((f) => f.top))]
+  };
+  for (const w of b.walls.filter((x) => levels.some((l) => l.id === x.level))) {
+    const L = Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1]), n = [-(w.b[1] - w.a[1]) / L * w.thickness / 2, (w.b[0] - w.a[0]) / L * w.thickness / 2];
+    for (const p of [w.a, w.b]) for (const k of [-1, 1]) for (let j = 0; j < 2; j++) {
+      const v = snap(p[j] + n[j] * k);
+      box.min[j] = Math.min(box.min[j], v);
+      box.max[j] = Math.max(box.max[j], v);
+    }
+    box.min[2] = Math.min(box.min[2], snap(w.z0));
+    box.max[2] = Math.max(box.max[2], snap(w.z1));
+  }
+  for (const p of b.platforms.filter((x) => levels.some((l) => l.id === x.level))) for (const k of p.blocks) {
+    for (const q of k.polygon) for (let j = 0; j < 2; j++) {
+      const v = snap(q[j]);
+      box.min[j] = Math.min(box.min[j], v);
+      box.max[j] = Math.max(box.max[j], v);
+    }
+    box.min[2] = Math.min(box.min[2], snap(p.bottom));
+    box.max[2] = Math.max(box.max[2], snap(k.top));
+  }
+  return box;
+}
+function shellBounds(b) {
+  const w = wallBounds(b), r = roofBounds(b);
+  if (!r) return w;
+  return { min: [0, 1, 2].map((k) => snap(Math.min(w.min[k], r.min[k]))), max: [0, 1, 2].map((k) => snap(Math.max(w.max[k], r.max[k]))) };
+}
+var snap22 = (p) => [snap(p[0]), snap(p[1])];
+function cutterSolid(geo, keep, c) {
+  if (c.box) return prism(keep, rectSection(geo, keep, c.box), c.z0, c.z1);
+  const cs = keep(new geo.CrossSection([c.outline]));
+  const local = keep(cs.extrude(c.depth + 2 * PROUD));
+  return keep(local.transform([c.dir[0], c.dir[1], 0, 0, 0, 0, 1, 0, c.out[0], c.out[1], 0, 0, c.a[0] - c.out[0] * PROUD, c.a[1] - c.out[1] * PROUD, 0, 1]));
+}
+function dormerOpenings(b, rooms) {
+  const cuts = [], windows = [];
+  for (const d of b.roof?.json.dormers ?? []) {
+    const w = d.window, room = w && rooms.find((r) => r.id === w.roomId);
+    if (!w || !room) continue;
+    const [x0, y0, x1, y1] = d.rect, [i0, i1, i2, i3] = d.inner, alongX = d.front === "N" || d.front === "S";
+    const mid = alongX ? (i0 + i2) / 2 : (i1 + i3) / 2, half = w.width / 2;
+    const out = d.front === "N" ? [0, 1] : d.front === "S" ? [0, -1] : d.front === "E" ? [1, 0] : [-1, 0];
+    const face = d.front === "N" ? i3 : d.front === "S" ? i1 : d.front === "E" ? i2 : i0, outer = d.front === "N" ? y1 : d.front === "S" ? y0 : d.front === "E" ? x1 : x0;
+    const dir = [-out[1] || 0, out[0] || 0], depth = snap(Math.abs(outer - face)), t0 = mid - half;
+    const a = alongX ? [dir[0] > 0 ? t0 : t0 + w.width, face] : [face, dir[1] > 0 ? t0 : t0 + w.width];
+    const box = alongX ? [snap(t0), snap(Math.min(face, outer) - PROUD), snap(t0 + w.width), snap(Math.max(face, outer) + PROUD)] : [snap(Math.min(face, outer) - PROUD), snap(t0), snap(Math.max(face, outer) + PROUD), snap(t0 + w.width)];
+    const z0 = snap(w.sill_z), z1 = snap(w.head_z);
+    cuts.push({ id: w.id, roomId: room.id, wallId: `${d.id}-front`, kind: "window", a: snap22(a), dir, out, outline: [[0, z0], [w.width, z0], [w.width, z1], [0, z1]], depth, box, z0, z1 });
+    windows.push({ id: w.id, roomId: room.id, wallId: `${d.id}-front`, kind: "window", a, dir, out, width: w.width, z0, z1, depth });
+  }
+  return { cuts, windows };
+}
+function span(b) {
+  const s = shellBounds(b);
+  return [snap(s.min[2] - 1), snap(s.max[2] + 1)];
+}
+function levelSolid(geo, keep, b, level, opts = {}) {
+  const rooms = roomsOfLevel(b, level);
+  if (!rooms.length) return null;
+  const { Manifold, CrossSection } = geo, frame = levelFrame(b, level), tags = new TagTable(), t = b.shell.exteriorWall;
+  const outlines = rooms.map((r) => r.polygon.map(snap22));
+  const footprint = keep(keep(new CrossSection(outlines)).offset(t, "Miter", 2));
+  const plan = { footprint: footprint.toPolygons().map((p) => p.map((q) => [q[0], q[1]])), rooms: outlines };
+  const roomSection = (i) => keep(new CrossSection([outlines[i]]));
+  const mass = [keep(tags.original(prism(keep, footprint, frame.bottom, frame.floor), { kind: "slab", level }))];
+  const voids = [];
+  let cap = null;
+  if (frame.roofed) {
+    const pieces = roofPieces(b, level), [lo, hi] = span(b), up = nextBuilt(b, level), slab = b.shell.slab;
+    const o = opts.roofOverlap ?? 0;
+    const space = roofSpace(geo, keep, pieces, "region", o, lo, hi), spaceUp = roofSpace(geo, keep, pieces, "inner", PROUD + o, lo, hi);
+    const nextFp = up ? keep(keep(new CrossSection(roomsOfLevel(b, up.id).map((r) => r.polygon.map(snap22)))).offset(t, "Miter", 2)) : null;
+    const nextTop = up ? snap(up.floorZ - slab) : 0;
+    cap = nextFp ? keep(Manifold.union(space, prism(keep, nextFp, lo, nextTop))) : space;
+    mass.push(keep(tags.original(keep(prism(keep, footprint, frame.floor, hi).intersect(cap)), { kind: "mass", level })));
+    rooms.forEach((r, i) => {
+      const parts = [keep(prism(keep, roomSection(i), snap(r.floorZ), snap(r.ceiling.flatZ)).intersect(spaceUp))];
+      if (nextFp) parts.push(prism(keep, keep(roomSection(i).intersect(nextFp)), snap(r.floorZ), snap(nextTop + PROUD)));
+      voids.push(keep(tags.original(keep(Manifold.union(parts)), { kind: "room", level, roomId: r.id })));
+    });
+  } else {
+    mass.push(keep(tags.original(prism(keep, footprint, frame.floor, frame.last ? frame.wallTop : frame.top), { kind: "mass", level })));
+    if (frame.last) mass.push(keep(tags.original(prism(keep, footprint, frame.wallTop, frame.top), { kind: "slab", level })));
+    const roomTop = frame.last ? frame.wallTop : frame.top + PROUD;
+    rooms.forEach((r, i) => voids.push(keep(tags.original(prism(keep, roomSection(i), snap(r.floorZ), roomTop), { kind: "room", level, roomId: r.id }))));
+  }
+  const openings = levelOpenings(rooms, plan, frame.wallTop), dormers = dormerOpenings(b, rooms);
+  const cuts = [...openings.cuts, ...dormers.cuts], windows = [...openings.windows, ...dormers.windows];
+  for (const c of cuts) voids.push(keep(tags.original(cutterSolid(geo, keep, c), { kind: "opening", level, roomId: c.roomId, holeId: c.id, wallId: c.wallId })));
+  if (stairArrivesAt(b, level)) {
+    const stairId = b.stairs.find((s) => s.toLevel === level)?.id;
+    for (const r of rooms) if (r.stairOutline) {
+      const box = keep(new CrossSection([r.stairOutline.map(snap22)]));
+      voids.push(keep(tags.original(prism(keep, box, snap(frame.bottom - PROUD), snap(frame.floor + PROUD)), { kind: "shaft", level, roomId: r.id, stairId })));
+    }
+  }
+  let solid = keep(keep(Manifold.union(mass)).subtract(keep(Manifold.union(voids))));
+  const grown2 = grownRooms(b, level), chimneys = [];
+  for (const c of b.roof?.json.chimneys ?? []) {
+    const x = (c.rect[0] + c.rect[2]) / 2, y = (c.rect[1] + c.rect[3]) / 2;
+    if (c.bottom > frame.top - 0.01 || !grown2.some((p) => inRegion(p, x, y))) continue;
+    const box = prism(keep, rectSection(geo, keep, c.rect.map(snap)), snap(Math.max(c.bottom, frame.bottom)), cap ? span(b)[1] : frame.top);
+    chimneys.push(keep(tags.original(cap ? keep(box.intersect(cap)) : box, { kind: "chimney", level, chimneyId: c.id })));
+  }
+  if (chimneys.length) solid = keep(Manifold.union([solid, ...chimneys]));
+  const free = b.walls.filter((w) => w.level === level).map((w) => {
+    const L = Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1]), u = [(w.b[0] - w.a[0]) / L, (w.b[1] - w.a[1]) / L], n = [-u[1] * w.thickness / 2, u[0] * w.thickness / 2];
+    const at2 = (s, k) => snap22([w.a[0] + u[0] * s + n[0] * k, w.a[1] + u[1] * s + n[1] * k]);
+    const quad = (s0, s1, k) => keep(new CrossSection([[at2(s0, -k), at2(s1, -k), at2(s1, k), at2(s0, k)]]));
+    let m = keep(tags.original(prism(keep, quad(0, L, 1), snap(w.z0), snap(w.z1)), { kind: "mass", level }));
+    const cuts2 = w.openings.map((o) => keep(tags.original(prism(keep, quad(o.t0, o.t1, 1 + 2 * PROUD / w.thickness), snap(o.z0), snap(o.z1)), { kind: "opening", level, holeId: o.id, wallId: w.id })));
+    if (cuts2.length) m = keep(m.subtract(keep(Manifold.union(cuts2))));
+    return m;
+  });
+  if (free.length) solid = keep(Manifold.union([solid, ...free]));
+  const platforms = b.platforms.filter((p) => p.level === level).flatMap((p) => p.blocks.map((k) => keep(tags.original(prism(keep, keep(new CrossSection([k.polygon.map(snap22)])), snap(p.bottom), snap(k.top)), { kind: "platform", level, platformId: p.id }))));
+  if (platforms.length) solid = keep(Manifold.union([solid, ...platforms]));
+  const status = solid.status();
+  if (status !== "NoError") throw new Error(`solid of level ${level}: ${status}`);
+  return { frame, solid, tags, plan, cuts, windows };
+}
+var meshes = /* @__PURE__ */ new WeakMap();
+var meshesApart = /* @__PURE__ */ new WeakMap();
+function shellMeshes(geo, b, opts = {}) {
+  const cache2 = opts.polygonFrames === false ? meshesApart : meshes, hit = cache2.get(b);
+  if (hit) return hit;
+  const t0 = Date.now(), failed = [];
+  const attempt = (part, level, fn) => {
+    try {
+      return scoped(fn);
+    } catch (e) {
+      failed.push({ part, level, error: kernelMessage(e) });
+      return null;
+    }
+  };
+  const levels = builtLevels(b).flatMap((l) => attempt("level", l.id, (keep) => {
+    const s = levelSolid(geo, keep, b, l.id), box = s.solid.boundingBox(), w = windowMeshes(s.windows, opts), slats = slatMeshes(b.walls.filter((x) => x.level === l.id));
+    const section = wallSection(keep, s.solid, s.frame.floor, l.floorZ + l.cutHeight);
+    return [{ level: l.id, frame: s.frame, solid: solidMesh(s.solid, s.tags), frames: joinMeshes(w.frames, slats), glass: w.glass, windows: s.windows, section, bounds: { min: [...box.min], max: [...box.max] }, volume: s.solid.volume() }];
+  }) ?? []);
+  const [lo, hi] = span(b);
+  const roofs = (b.roof?.levels ?? []).flatMap((level) => attempt("roof", level, (keep) => {
+    const r = roofSolid(geo, keep, b, level, lo, hi);
+    if (!r) return [];
+    const box = r.solid.boundingBox(), w = windowMeshes(r.windows.map((x) => x.frame));
+    return [{ level, solid: solidMesh(r.solid, r.tags), frames: w.frames, glass: w.glass, windows: r.windows, bounds: { min: [...box.min], max: [...box.max] }, volume: r.solid.volume() }];
+  }) ?? []);
+  const triangles = [...levels, ...roofs].reduce((n, l) => n + l.solid.index.length / 3, 0);
+  const res = { levels, roofs, failed, triangles, ms: Date.now() - t0 };
+  cache2.set(b, res);
+  return res;
+}
+
+// packages/core/src/preview/exterior.ts
+var WALL = [228, 224, 214];
+var ROOF = [176, 92, 74];
+var CHIMNEY = [150, 150, 146];
+var GLASS = [150, 186, 222];
+var FRAME = [246, 246, 244];
+var ROOF_ROLES = /* @__PURE__ */ new Set(["roof", "roof-flat", "eaves", "roof-underside"]);
+function byRole(m) {
+  const groups = /* @__PURE__ */ new Map();
+  for (let t = 0; t < m.role.length; t++) {
+    const role = ROLES[m.role[t]], c = ROOF_ROLES.has(role) ? ROOF : role === "chimney" ? CHIMNEY : WALL;
+    let g = groups.get(c);
+    if (!g) groups.set(c, g = []);
+    g.push(m.index[t * 3], m.index[t * 3 + 1], m.index[t * 3 + 2]);
+  }
+  return [...groups].map(([color, idx]) => ({ positions: m.positions, index: new Uint32Array(idx), color }));
+}
+function exteriorImage(geo, data, o) {
+  const s = shellMeshes(geo, building(data));
+  if (s.failed.length) throw new Error(`the shell could not be built: ${s.failed.map((f) => `${f.part} ${f.level} — ${f.error}`).join("; ")}`);
+  const W = 1440, H = 600, head = 34, img = image(W, head + H, [250, 250, 248]);
+  const meshes2 = [];
+  for (const l of [...s.levels, ...s.roofs]) {
+    meshes2.push(...byRole(l.solid));
+    if (l.frames.index.length) meshes2.push({ positions: l.frames.positions, index: l.frames.index, color: FRAME });
+    if (l.glass.index.length) meshes2.push({ positions: l.glass.positions, index: l.glass.index, color: GLASS });
+  }
+  drawMeshes(img, 0, head, W / 2, H, meshes2, { azimuth: -125, elevation: 24 }, 24);
+  drawMeshes(img, W / 2, head, W / 2, H, meshes2, { azimuth: 55, elevation: 24 }, 24);
+  fillRect(img, W / 2, head + 20, 1, H - 40, [220, 222, 226]);
+  let t = o.title;
+  while (t.length > 1 && textWidth(t, 2) > W - 16) t = t.slice(0, -1);
+  text(img, 8, 8, t, 2, [33, 37, 45]);
+  return img;
+}
+
+// packages/core/src/model/doors.ts
+var clamp01 = (t) => Math.min(1, Math.max(0, Number.isFinite(t) ? t : 0));
+var at = (p, d, k) => [p[0] + d[0] * k, p[1] + d[1] * k];
+var leafCount = (d) => d.type === "hinged-double" || d.type === "folding" ? 2 : 1;
+var leafWidthOf = (d) => d.leafWidth / leafCount(d);
+var leafAngle = (d, t) => (d.openAngle ?? 0) * clamp01(t);
+function doorLeaves(d, t) {
+  if (d.hinge && d.closedDir && d.openDir) {
+    const th = leafAngle(d, t) * Math.PI / 180, c = Math.cos(th), s = Math.sin(th), w = leafWidthOf(d), h = d.hinge, C = d.closedDir, O = d.openDir;
+    const dir = [C[0] * c + O[0] * s, C[1] * c + O[1] * s];
+    if (d.type === "hinged-double") {
+      const h2 = at(h, C, d.leafWidth), dir2 = [-C[0] * c + O[0] * s, -C[1] * c + O[1] * s];
+      return [{ a: h, b: at(h, dir, w), dir }, { a: h2, b: at(h2, dir2, w), dir: dir2 }];
+    }
+    if (d.type === "folding") {
+      const j = at(h, dir, w), end = at(h, C, 2 * w * c), dir2 = [C[0] * c - O[0] * s, C[1] * c - O[1] * s];
+      return [{ a: h, b: j, dir }, { a: j, b: end, dir: dir2 }];
+    }
+    return [{ a: h, b: at(h, dir, d.leafWidth), dir }];
+  }
+  if (d.lift) return [{ a: d.lift.origin, b: at(d.lift.origin, d.lift.dir, d.leafWidth), dir: d.lift.dir }];
+  if (d.slide) {
+    const k = (d.opening.width - d.leafWidth) / 2 + d.slide.travel * clamp01(t), a = at(d.slide.origin, d.slide.dir, k);
+    return [{ a, b: at(a, d.slide.dir, d.leafWidth), dir: d.slide.dir }];
+  }
+  return [];
+}
+function swingArcs(d, steps = 16) {
+  if (d.lift) {
+    const [l] = doorLeaves(d, 0), r = liftReach(d), i = d.lift.into;
+    return [[at(l.a, i, r), l.a, l.b, at(l.b, i, r)]];
+  }
+  if (!d.hinge) {
+    const s0 = doorLeaves(d, 0)[0], s1 = doorLeaves(d, 1)[0];
+    return s0 && s1 ? [[s0.a, s1.b]] : [];
+  }
+  const path7 = (k) => Array.from({ length: steps + 1 }, (_, i) => doorLeaves(d, i / steps)[k].b);
+  return d.type === "hinged-double" ? [path7(0), path7(1)] : [path7(0)];
+}
+function leafSectors(d) {
+  if (!d.hinge || !d.closedDir || !d.openDir) return [];
+  const w = leafWidthOf(d);
+  if (d.type === "hinged-double") return [{ hinge: d.hinge, closedDir: d.closedDir, openDir: d.openDir, radius: w }, { hinge: at(d.hinge, d.closedDir, d.leafWidth), closedDir: [-d.closedDir[0], -d.closedDir[1]], openDir: d.openDir, radius: w }];
+  return [{ hinge: d.hinge, closedDir: d.closedDir, openDir: d.openDir, radius: w }];
+}
+var SECTIONAL = { panel: 0.5, radius: 0.3, rise: 0.1 };
+var sectionCount = (d) => d.lift ? Math.max(2, Math.round(d.height / SECTIONAL.panel)) : 0;
+var liftLevel = (d) => d.height + SECTIONAL.rise;
+var liftRun = (d) => liftLevel(d) - SECTIONAL.radius + SECTIONAL.radius * Math.PI / 2 + 0.06;
+function sectionPose(d, t, k) {
+  const n = sectionCount(d), h = d.height / Math.max(1, n), R = SECTIONAL.radius, level = liftLevel(d), qV = level - R, arc = R * Math.PI / 2;
+  const q = (k + 0.5) * h + clamp01(t) * liftRun(d);
+  if (q <= qV) return { depth: 0, z: q, angle: 0 };
+  if (q <= qV + arc) {
+    const a = (q - qV) / R;
+    return { depth: R - R * Math.cos(a), z: qV + R * Math.sin(a), angle: a };
+  }
+  return { depth: R + (q - qV - arc), z: level, angle: Math.PI / 2 };
+}
+function liftReach(d) {
+  const n = sectionCount(d);
+  return n ? sectionPose(d, 1, n - 1).depth + d.height / n / 2 : 0;
+}
+
+// packages/core/src/preview/plan.ts
+var PLAN_LABELS = {
+  planTitle: "{name} · {level} ({id}) · 1 grid = 1 m · +X right, +Y up",
+  roofTitle: "{name} · roof plan · top {top} m · red: ridges and hips, blue: valleys · 1 grid = 1 m",
+  printed: "plan {area}",
+  up: "up",
+  down: "down"
+};
+var SS = 2;
+var HEAD = 34;
+var BG = [249, 250, 251];
+var GRID = [229, 231, 235];
+var GRID_TEXT = [156, 163, 175];
+var INK = [17, 24, 39];
+var WALL2 = [55, 65, 81];
+var WHITE = [255, 255, 255];
+var MUTED = [55, 65, 81];
+var DOOR = [220, 38, 38];
+var DOOR_TEXT = [185, 28, 28];
+var GLASS2 = [191, 219, 254];
+var GLASS_DOOR = [147, 197, 253];
+var BLUE = [37, 99, 235];
+var BLUE_TEXT = [29, 78, 216];
+var STAIR = [254, 243, 199];
+var STAIR_LINE = [217, 119, 6];
+var STAIR_EDGE = [180, 83, 9];
+var STAIR_TEXT = [146, 64, 14];
+var HEIGHT_LINE = [124, 58, 237];
+var HEIGHT_TEXT = [109, 40, 217];
+var PLATFORM = [231, 229, 228];
+var PLATFORM_EDGE = [120, 113, 108];
+var PLATFORM_TEXT = [87, 83, 78];
+var sub2 = (s, v) => s.replace(/\{(\w+)\}/g, (_, k) => String(v[k] ?? ""));
+var fmt2 = (x) => (Math.round(x * 100) / 100).toString();
+var Sheet = class {
+  big;
+  labels = [];
+  W;
+  H;
+  x0;
+  y0;
+  x1;
+  y1;
+  S;
+  constructor(x0, y0, x1, y1, S) {
+    this.x0 = x0;
+    this.y0 = y0;
+    this.x1 = x1;
+    this.y1 = y1;
+    this.S = S;
+    this.W = Math.round((x1 - x0) * S);
+    this.H = Math.round((y1 - y0) * S) + HEAD;
+    this.big = image(this.W * SS, this.H * SS, BG);
+  }
+  /** final-image pixel of a plan point */
+  px = (p) => [(p[0] - this.x0) * this.S, (this.y1 - p[1]) * this.S + HEAD];
+  big2 = (p) => {
+    const q = this.px(p);
+    return [q[0] * SS, q[1] * SS];
+  };
+  poly(pts, c, alpha = 1) {
+    fillPolygon(this.big, [pts.map(this.big2)], c, alpha);
+  }
+  polys(rings, c) {
+    fillPolygon(this.big, rings.map((r) => r.map(this.big2)), c);
+  }
+  /** a line `w` final pixels wide */
+  seg(a, b, c, w = 1, dash) {
+    const p = this.big2(a), q = this.big2(b);
+    line(this.big, p[0], p[1], q[0], q[1], c, w * SS, dash && [dash[0] * SS, dash[1] * SS]);
+  }
+  outline(pts, c, w = 1, dash) {
+    polyline(this.big, pts.map(this.big2), c, w * SS, true, dash && [dash[0] * SS, dash[1] * SS]);
+  }
+  label(p, s, scale, c, anchor2 = "middle", dx = 0, dy = 0, box = false) {
+    const [x, y] = this.px(p);
+    this.labels.push({ x: x + dx, y: y + dy, s, scale, c, anchor: anchor2, box });
+  }
+  /** the 1 m grid with its coordinates on the top and left margins */
+  grid() {
+    for (let x = Math.ceil(this.x0); x <= this.x1; x++) {
+      this.seg([x, this.y0], [x, this.y1], GRID);
+      this.label([x, this.y1], String(x), 1, GRID_TEXT, "middle", 0, 3);
+    }
+    for (let y = Math.ceil(this.y0); y <= this.y1; y++) {
+      this.seg([this.x0, y], [this.x1, y], GRID);
+      this.label([this.x0, y], String(y), 1, GRID_TEXT, "start", 3, -12);
+    }
+  }
+  finish(title) {
+    const img = shrink(this.big, SS);
+    fillRect(img, 0, 0, img.width, HEAD - 6, BG);
+    for (const l of this.labels) {
+      const w = textWidth(l.s, l.scale), x = Math.round(l.anchor === "middle" ? l.x - w / 2 : l.x), y = Math.round(l.y);
+      if (l.box) fillRect(img, x - 3, y - 2, w + 4, 11 * l.scale + 2, WHITE);
+      text(img, x, y, l.s, l.scale, l.c);
+    }
+    text(img, 8, 8, fit(title, img.width - 16, 2), 2, INK);
+    return img;
+  }
+};
+function fit(s, width, scale) {
+  if (textWidth(s, scale) <= width) return s;
+  let t = s;
+  while (t.length > 1 && textWidth(`${t}...`, scale) > width) t = t.slice(0, -1);
+  return `${t}...`;
+}
+var scaleFor = (w, h) => Math.min(1600 / w, 1200 / h);
+function grow(poly, d) {
+  const n = poly.length, area22 = poly.reduce((s, a, i) => {
+    const b = poly[(i + 1) % n];
+    return s + a[0] * b[1] - b[0] * a[1];
+  }, 0), k = area22 >= 0 ? 1 : -1;
+  const normal = (a, b) => {
+    const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
+    return [k * dy / l, -k * dx / l];
+  };
+  return poly.map((p, i) => {
+    const n0 = normal(poly[(i - 1 + n) % n], p), n1 = normal(p, poly[(i + 1) % n]);
+    return [p[0] + d * (n0[0] + n1[0]), p[1] + d * (n0[1] + n1[1])];
+  });
+}
+var inside = (p, poly) => {
+  let c = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i], b = poly[j];
+    if (a[1] > p[1] !== b[1] > p[1] && p[0] < (b[0] - a[0]) * (p[1] - a[1]) / (b[1] - a[1]) + a[0]) c = !c;
+  }
+  return c;
+};
+function labelPoint(poly) {
+  const xs = [...new Set(poly.map((p) => p[0]))].sort((a, b) => a - b), ys = [...new Set(poly.map((p) => p[1]))].sort((a, b) => a - b);
+  let best = null;
+  for (let i = 0; i < xs.length - 1; i++) for (let j = i + 1; j < xs.length; j++) for (let u = 0; u < ys.length - 1; u++) for (let v = u + 1; v < ys.length; v++) {
+    const size = Math.min(xs[j] - xs[i], ys[v] - ys[u]);
+    if (best && size <= best.size) continue;
+    let ok = true;
+    for (let a = i; a < j && ok; a++) for (let b = u; b < v && ok; b++) ok = inside([(xs[a] + xs[a + 1]) / 2, (ys[b] + ys[b + 1]) / 2], poly);
+    if (ok) best = { size, p: [(xs[i] + xs[j]) / 2, (ys[u] + ys[v]) / 2] };
+  }
+  return best?.p ?? poly[0];
+}
+var rect2 = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+function planImage(data, levelId, o) {
+  const L = { ...PLAN_LABELS, ...o.labels }, B = building(data);
+  const rooms = data.rooms.rooms.filter((r) => r.level === levelId);
+  const polys = rooms.map((r) => r.polygon.map((p) => [p[0], p[1]]));
+  const platforms = B.platforms.filter((p) => p.level === levelId);
+  const extra = [...B.walls.filter((w) => w.level === levelId).flatMap((w) => [w.a, w.b]), ...platforms.flatMap((p) => p.blocks.flatMap((k) => k.polygon))];
+  const xs = [...polys.flat(), ...extra].map((p) => p[0]), ys = [...polys.flat(), ...extra].map((p) => p[1]);
+  const ext = B.shell.exteriorWall, m = ext + 0.8;
+  if (!xs.length) xs.push(0, 1), ys.push(0, 1);
+  const x0 = Math.min(...xs) - m, y0 = Math.min(...ys) - m, x1 = Math.max(...xs) + m, y1 = Math.max(...ys) + m;
+  const sh = new Sheet(x0, y0, x1, y1, scaleFor(x1 - x0, y1 - y0));
+  sh.grid();
+  for (const p of platforms) {
+    const first = p.blocks[0].polygon, top = p.blocks[p.blocks.length - 1].top;
+    sh.poly(first, PLATFORM);
+    sh.outline(first, PLATFORM_EDGE);
+    for (const k of p.blocks.slice(1)) sh.outline(k.polygon, PLATFORM_EDGE);
+    const [cx, cy] = labelPoint(first);
+    sh.label([cx, cy], `${p.id} ${top >= 0 ? "+" : ""}${top.toFixed(2)}`, 1, PLATFORM_TEXT, "middle", 0, 4);
+  }
+  for (const p of polys) sh.poly(grow(p, ext), WALL2);
+  for (const p of polys) {
+    sh.poly(p, WHITE);
+    sh.outline(p, INK);
+  }
+  for (const r of rooms) {
+    const band = (f, t0, t1, c0, c1) => f.dir[1] === 0 ? rect2(t0, c0, t1, c1) : f.dir[0] === 0 ? rect2(c0, t0, c1, t1) : [linePt(f, t0, c0), linePt(f, t1, c0), linePt(f, t1, c1), linePt(f, t0, c1)];
+    for (const d of r.doors) {
+      const [a, b] = d.across;
+      sh.poly(band(gapFrame(d), d.from_, d.to, Math.min(a, b), Math.max(a, b)), WHITE);
+    }
+    for (const w of r.openings) {
+      const f = windowFrame(w), t = 0.18, inner = w.inner, out = r.polygon.some((p) => lineC(f, p) > inner + 0.01) ? -1 : 1;
+      const lo = Math.min(w.from_, w.to), hi = Math.max(w.from_, w.to), e = inner + out * t;
+      const poly = band(f, lo, hi, Math.min(inner, e), Math.max(inner, e));
+      sh.poly(poly, (w.sill_z ?? 0) < 0.05 ? GLASS_DOOR : GLASS2);
+      sh.outline(poly, BLUE);
+      const at2 = linePt(f, (lo + hi) / 2, inner);
+      sh.label(at2, w.id, 1, BLUE_TEXT, "middle", 0, out > 0 ? -14 : 4);
+    }
+  }
+  for (const w of B.walls.filter((x) => x.level === levelId)) {
+    const L2 = Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1]), u = [(w.b[0] - w.a[0]) / L2, (w.b[1] - w.a[1]) / L2], h = w.thickness / 2;
+    const at2 = (s, k) => [w.a[0] + u[0] * s - u[1] * k, w.a[1] + u[1] * s + u[0] * k];
+    sh.poly([at2(0, -h), at2(L2, -h), at2(L2, h), at2(0, h)], WALL2);
+    for (const o2 of w.openings) {
+      sh.poly([at2(o2.t0, -h), at2(o2.t1, -h), at2(o2.t1, h), at2(o2.t0, h)], WHITE);
+      if (o2.infill) for (let s = o2.t0; s < o2.t1 - 1e-6; s += 0.1) sh.seg(at2(s, 0), at2(Math.min(o2.t1, s + 0.05), 0), WALL2);
+    }
+  }
+  for (const s of B.stairs) if (s.fromLevel === levelId || s.toLevel === levelId) {
+    const d = stairDrawing(s);
+    sh.poly(d.outline, STAIR);
+    sh.outline(d.outline, STAIR_EDGE);
+    for (const [a, b] of d.treads) sh.seg(a, b, STAIR_LINE);
+    for (const [a, b] of d.edges) sh.seg(a, b, STAIR_EDGE);
+    for (let i = 1; i < d.path.length; i++) sh.seg(d.path[i - 1], d.path[i], STAIR_TEXT, 2);
+    sh.poly(d.head, STAIR_TEXT);
+    sh.label(d.label, `${s.id} ${s.fromLevel === levelId ? L.up : L.down}`, 1, STAIR_TEXT, "middle", 0, -5, true);
+  }
+  for (const r of rooms) {
+    const c = B.roomById.get(r.id)?.ceiling;
+    if (c && c.kind !== "flat") for (const h of [1.4, 2.2]) {
+      let at2 = null;
+      for (const f of c.facets()) {
+        const seg = contourOf(f, r.floor_z + h);
+        if (!seg) continue;
+        sh.seg(seg[0], seg[1], HEIGHT_LINE, 1, [6, 4]);
+        at2 ??= seg[0];
+      }
+      if (at2) sh.label(at2, String(Math.round(h * 100)), 1, HEIGHT_TEXT, "start", 3, -13);
+    }
+    for (const w of r.roof_windows ?? []) {
+      const [a, b, cx, d] = w.plan_rect, box = rect2(a, b, cx, d);
+      sh.poly(box, [219, 234, 254]);
+      sh.outline(box, BLUE, 1, [3, 2]);
+      sh.label([(a + cx) / 2, (b + d) / 2], w.id, 1, BLUE_TEXT, "middle", 0, -5);
+    }
+  }
+  for (const d of B.doors.filter((x) => x.level === levelId)) {
+    const leaves = doorLeaves(d, 1);
+    if (d.hinge && leaves.length) {
+      for (const l of leaves) sh.seg(l.a, l.b, DOOR, 2);
+      for (const arc of swingArcs(d, 16)) for (let i = 0; i < arc.length - 1; i += 2) sh.seg(arc[i], arc[i + 1], DOOR);
+      sh.label(leaves[0].b, d.id, 1, DOOR_TEXT, "start", 4, -5);
+    } else if (d.slide) {
+      const s = d.slide.origin, e = [s[0] + d.slide.dir[0] * d.leafWidth, s[1] + d.slide.dir[1] * d.leafWidth];
+      sh.seg(s, e, DOOR, 3);
+      sh.label(e, `${d.id} ↔`, 1, DOOR_TEXT, "start", 4, -5);
+    } else if (d.lift && leaves.length) {
+      sh.seg(leaves[0].a, leaves[0].b, DOOR, 3);
+      for (const arc of swingArcs(d)) for (let i = 0; i < arc.length - 1; i += 2) sh.seg(arc[i], arc[i + 1], DOOR);
+      sh.label(leaves[0].b, `${d.id} ↑`, 1, DOOR_TEXT, "start", 4, -5);
+    }
+  }
+  for (const r of rooms) {
+    const p = labelPoint(r.polygon.map((q) => [q[0], q[1]]));
+    sh.label(p, r.id, 2, INK, "middle", 0, -20, true);
+    sh.label(p, `${r.name} · ${fmt2(r.area)} m²${r.area_data !== r.area ? ` (${sub2(L.printed, { area: fmt2(r.area_data) })})` : ""}`, 1, MUTED, "middle", 0, 6, true);
+  }
+  const level = data.rooms.levels[levelId]?.name ?? levelId;
+  return sh.finish(sub2(L.planTitle, { name: o.name, level, id: levelId }));
+}
+function roofImage(data, o) {
+  const L = { ...PLAN_LABELS, ...o.labels }, B = building(data), roof = B.roof;
+  if (!roof?.pieces.length) return null;
+  const boxes = roof.pieces.map((p) => regionBox(p.cover)), m = 1;
+  const x0 = Math.min(...boxes.map((b) => b[0])) - m, y0 = Math.min(...boxes.map((b) => b[1])) - m, x1 = Math.max(...boxes.map((b) => b[2])) + m, y1 = Math.max(...boxes.map((b) => b[3])) + m;
+  const sh = new Sheet(x0, y0, x1, y1, scaleFor(x1 - x0, y1 - y0));
+  sh.grid();
+  const same = (a, b) => Math.abs(a.gx - b.gx) < 1e-9 && Math.abs(a.gy - b.gy) < 1e-9 && Math.abs(a.z0 - b.z0) < 1e-6;
+  const levels = [...roof.levels].sort((a, b) => B.levelById.get(a).floorZ - B.levelById.get(b).floorZ), lines = [];
+  let top = -Infinity;
+  for (const level of levels) {
+    const s = { pieces: roof.byLevel(level), which: "cover", lift: roof.thickness };
+    for (const f of surfaceFacets(s, rect2(x0, y0, x1, y1))) {
+      const p = f.plane, l = Math.hypot(p.gx, p.gy, 1), light = Math.max(0, (p.gx * 0.45 + p.gy * 0.45 + 0.77) / l), flat = Math.hypot(p.gx, p.gy) < 0.09;
+      const c = flat ? [150, 150, 146] : [140, 82, 70], k = 0.55 + 0.6 * light;
+      sh.poly(f.polygon, c.map((v) => Math.min(255, Math.round(v * k))));
+      for (const q of f.polygon) top = Math.max(top, planeZ(p, q[0], q[1]));
+      for (let i = 0; i < f.polygon.length; i++) {
+        const a = f.polygon[i], b = f.polygon[(i + 1) % f.polygon.length], len2 = Math.hypot(b[0] - a[0], b[1] - a[1]);
+        if (len2 < 1e-6) continue;
+        const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], n = [(b[1] - a[1]) / len2, -(b[0] - a[0]) / len2], q = [mid[0] + n[0] * 1e-3, mid[1] + n[1] * 1e-3], other = surfaceAt(s, q[0], q[1]);
+        if (!other || Math.abs(planeZ(p, mid[0], mid[1]) - planeZ(other.plane, mid[0], mid[1])) > 0.01) lines.push([a, b, [31, 41, 55], 2]);
+        else if (!same(other.plane, p)) lines.push([a, b, planeZ(p, q[0], q[1]) > other.z + 1e-6 ? [127, 29, 29] : [29, 78, 216], 2]);
+      }
+    }
+  }
+  for (const [a, b, c, w] of lines) sh.seg(a, b, c, w);
+  for (const r of data.rooms.rooms) sh.outline(grow(r.polygon.map((p) => [p[0], p[1]]), B.shell.exteriorWall), [107, 114, 128], 1, [4, 4]);
+  for (const d of roof.json.dormers ?? []) {
+    sh.outline(rect2(d.rect[0], d.rect[1], d.rect[2], d.rect[3]), [245, 158, 11], 2);
+    sh.label([(d.rect[0] + d.rect[2]) / 2, (d.rect[1] + d.rect[3]) / 2], `${d.id} (${d.type}, ${d.front})`, 1, STAIR_TEXT, "middle", 0, -5, true);
+  }
+  for (const c of roof.json.chimneys ?? []) {
+    const box = rect2(c.rect[0], c.rect[1], c.rect[2], c.rect[3]);
+    sh.poly(box, [107, 114, 128]);
+    sh.outline(box, INK);
+    sh.label([c.rect[2], c.rect[3]], `${c.id} ${c.top} m`, 1, INK, "start", 4, -5, true);
+  }
+  for (const r of data.rooms.rooms) for (const w of r.roof_windows ?? []) {
+    const [a, b, c, d] = w.plan_rect, box = rect2(a, b, c, d);
+    sh.poly(box, GLASS2);
+    sh.outline(box, BLUE);
+    sh.label([(a + c) / 2, (b + d) / 2], w.id, 1, BLUE_TEXT, "middle", 0, -5);
+  }
+  for (const p of roof.json.parts) {
+    const poly = p.polygon ?? regionPolygon(p.rect), cx = poly.reduce((u, q) => u + q[0], 0) / poly.length, cy = poly.reduce((u, q) => u + q[1], 0) / poly.length;
+    sh.label([cx, cy], `${p.id}: ${p.type}${p.pitch !== void 0 ? ` ${p.pitch}°` : ""} (${p.level})`, 2, INK, "middle", 0, -11, true);
+  }
+  return sh.finish(sub2(L.roofTitle, { name: o.name, top: top.toFixed(2) }));
+}
+
+// packages/core/src/print/printers.ts
+var PRINTERS = [
+  { maker: "Creality", model: "K1", x: 220, y: 220, z: 250 },
+  { maker: "Creality", model: "K1C", x: 220, y: 220, z: 250 },
+  { maker: "Creality", model: "K1 SE", x: 220, y: 220, z: 250 },
+  { maker: "Creality", model: "K1 Max", x: 300, y: 300, z: 300 },
+  { maker: "Creality", model: "K2 Plus", x: 350, y: 350, z: 350 },
+  { maker: "Creality", model: "Ender-3", x: 220, y: 220, z: 250, note: "also Pro, V2, Neo" },
+  { maker: "Creality", model: "Ender-3 V2", x: 220, y: 220, z: 250 },
+  { maker: "Creality", model: "Ender-3 V3 SE", x: 220, y: 220, z: 250 },
+  { maker: "Creality", model: "Ender-3 V3 KE", x: 220, y: 220, z: 240 },
+  { maker: "Creality", model: "Ender-3 V3", x: 220, y: 220, z: 250 },
+  { maker: "Creality", model: "Ender-3 S1", x: 220, y: 220, z: 270, note: "also S1 Pro" },
+  { maker: "Creality", model: "Ender-3 Max", x: 300, y: 300, z: 340 },
+  { maker: "Creality", model: "Ender-5", x: 220, y: 220, z: 300, note: "also Pro" },
+  { maker: "Creality", model: "Ender-5 S1", x: 220, y: 220, z: 280 },
+  { maker: "Creality", model: "Ender-5 Plus", x: 350, y: 350, z: 400 },
+  { maker: "Creality", model: "CR-10", x: 300, y: 300, z: 400, note: "also V2, V3, Smart" },
+  { maker: "Creality", model: "CR-10 SE", x: 220, y: 220, z: 265 },
+  { maker: "Creality", model: "Hi", x: 260, y: 260, z: 300 },
+  { maker: "Bambu Lab", model: "A1 mini", x: 180, y: 180, z: 180 },
+  { maker: "Bambu Lab", model: "A1", x: 256, y: 256, z: 256 },
+  { maker: "Bambu Lab", model: "P1P", x: 256, y: 256, z: 256 },
+  { maker: "Bambu Lab", model: "P1S", x: 256, y: 256, z: 256 },
+  { maker: "Bambu Lab", model: "P2S", x: 256, y: 256, z: 256 },
+  { maker: "Bambu Lab", model: "X1C", x: 256, y: 256, z: 256, note: "also X1, X1E" },
+  { maker: "Bambu Lab", model: "H2D", x: 350, y: 320, z: 325, note: "less in X with two nozzles" },
+  { maker: "Bambu Lab", model: "H2S", x: 340, y: 320, z: 325 },
+  { maker: "Prusa", model: "MINI", x: 180, y: 180, z: 180, note: "also MINI+" },
+  { maker: "Prusa", model: "MK3S", x: 250, y: 210, z: 210, note: "also MK3S+" },
+  { maker: "Prusa", model: "MK4", x: 250, y: 210, z: 220, note: "also MK4S, MK3.5" },
+  { maker: "Prusa", model: "Core One", x: 250, y: 220, z: 270 },
+  { maker: "Prusa", model: "XL", x: 360, y: 360, z: 360 },
+  { maker: "Anycubic", model: "Kobra 2", x: 220, y: 220, z: 250, note: "also Kobra 2 Neo" },
+  { maker: "Anycubic", model: "Kobra 2 Pro", x: 220, y: 220, z: 250 },
+  { maker: "Anycubic", model: "Kobra 2 Max", x: 420, y: 420, z: 500 },
+  { maker: "Anycubic", model: "Kobra 3", x: 250, y: 220, z: 260, note: "also Kobra 3 Combo" },
+  { maker: "Anycubic", model: "Kobra S1", x: 250, y: 250, z: 250 },
+  { maker: "Anycubic", model: "Kobra 3 Max", x: 420, y: 420, z: 500 },
+  { maker: "Anycubic", model: "Vyper", x: 245, y: 245, z: 260 },
+  { maker: "Anycubic", model: "i3 Mega", x: 210, y: 210, z: 205 },
+  { maker: "Elegoo", model: "Neptune 3", x: 220, y: 220, z: 280 },
+  { maker: "Elegoo", model: "Neptune 3 Pro", x: 225, y: 225, z: 280 },
+  { maker: "Elegoo", model: "Neptune 4", x: 225, y: 225, z: 265, note: "also Neptune 4 Pro" },
+  { maker: "Elegoo", model: "Neptune 4 Plus", x: 320, y: 320, z: 385 },
+  { maker: "Elegoo", model: "Neptune 4 Max", x: 420, y: 420, z: 480 },
+  { maker: "Elegoo", model: "Centauri Carbon", x: 256, y: 256, z: 256, note: "also Centauri" },
+  { maker: "Flashforge", model: "Adventurer 5M", x: 220, y: 220, z: 220, note: "also 5M Pro" },
+  { maker: "Flashforge", model: "AD5X", x: 220, y: 220, z: 220 },
+  { maker: "Flashforge", model: "Adventurer 3", x: 150, y: 150, z: 150 },
+  { maker: "Qidi", model: "Q1 Pro", x: 245, y: 245, z: 240 },
+  { maker: "Qidi", model: "Plus 4", x: 305, y: 305, z: 280 },
+  { maker: "Qidi", model: "X-Plus 3", x: 280, y: 280, z: 270 },
+  { maker: "Qidi", model: "X-Max 3", x: 325, y: 325, z: 315 },
+  { maker: "Sovol", model: "SV06", x: 220, y: 220, z: 250, note: "also SV06 Plus: 300 × 300 × 340" },
+  { maker: "Sovol", model: "SV07", x: 220, y: 220, z: 250 },
+  { maker: "Sovol", model: "SV08", x: 350, y: 350, z: 345 },
+  { maker: "Artillery", model: "Sidewinder X2", x: 300, y: 300, z: 400, note: "also X1, X3" },
+  { maker: "Artillery", model: "Genius", x: 220, y: 220, z: 250, note: "also Genius Pro" },
+  { maker: "AnkerMake", model: "M5", x: 235, y: 235, z: 250, note: "also M5C" },
+  { maker: "Voron", model: "2.4 250", x: 250, y: 250, z: 250 },
+  { maker: "Voron", model: "2.4 300", x: 300, y: 300, z: 300 },
+  { maker: "Voron", model: "2.4 350", x: 350, y: 350, z: 350 },
+  { maker: "Voron", model: "0.2", x: 120, y: 120, z: 120 },
+  { maker: "Kingroon", model: "KP3S", x: 180, y: 180, z: 180 },
+  { maker: "Snapmaker", model: "A350", x: 320, y: 350, z: 330 },
+  { maker: "Ultimaker", model: "S5", x: 330, y: 240, z: 300 },
+  { maker: "Ultimaker", model: "2+", x: 223, y: 223, z: 205 },
+  { maker: "Toybox", model: "Toybox", x: 70, y: 80, z: 90 }
+];
+var norm3 = (s) => s.toLowerCase().replace(/-/g, " ").replace(/\s+/g, " ").trim();
+var printerName = (p) => `${p.maker} ${p.model}`;
+function findPrinters(phrase) {
+  const words = norm3(phrase).split(" ").filter(Boolean);
+  if (!words.length) return [];
+  const found = PRINTERS.filter((p) => {
+    const text2 = norm3(printerName(p));
+    return words.every((w) => text2.includes(w));
+  });
+  const exact = found.filter((p) => norm3(p.model) === norm3(phrase) || norm3(printerName(p)) === norm3(phrase));
+  return exact.length === 1 ? exact : found;
+}
+function parseBed(text2) {
+  const m = /^\s*(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)(?:\s*[x×]\s*(\d+(?:\.\d+)?))?\s*(?:mm)?\s*$/i.exec(text2);
+  if (m) {
+    const bed = { name: null, x: Number(m[1]), y: Number(m[2]), z: m[3] ? Number(m[3]) : null };
+    if (!(bed.x > 0 && bed.y > 0 && (bed.z === null || bed.z > 0))) throw new Error(`bed size must be positive: ${text2}`);
+    return bed;
+  }
+  const found = findPrinters(text2);
+  if (found.length === 1) return { name: printerName(found[0]), x: found[0].x, y: found[0].y, z: found[0].z };
+  if (found.length > 1) throw new Error(`printer "${text2}" is ambiguous: ${found.slice(0, 8).map(printerName).join(", ")}${found.length > 8 ? ", …" : ""}`);
+  throw new Error(`unknown printer "${text2}"; give the bed size as WIDTHxDEPTH or WIDTHxDEPTHxHEIGHT in mm, e.g. 220x220x250`);
+}
+
+// packages/house-forge/src/common.ts
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+// packages/core/src/model/outline.ts
+var bboxOf = (p) => [Math.min(...p.map((q) => q[0])), Math.min(...p.map((q) => q[1])), Math.max(...p.map((q) => q[0])), Math.max(...p.map((q) => q[1]))];
+var inPolygon = (c, p) => pointInPolygon(c, p, 0);
+function outerOutline(rooms, t) {
+  if (!rooms.every((p) => p.every((a, i) => {
+    const b = p[(i + 1) % p.length];
+    return Math.abs(a[0] - b[0]) < 1e-9 || Math.abs(a[1] - b[1]) < 1e-9;
+  }))) return grownUnion(rooms, t);
+  const uniq = (v) => [...new Set(v.map((x) => Math.round(x * 1e5) / 1e5))].sort((a, b) => a - b);
+  const xs = uniq(rooms.flatMap((p) => p.flatMap((q) => [q[0] - t, q[0], q[0] + t]))), ys = uniq(rooms.flatMap((p) => p.flatMap((q) => [q[1] - t, q[1], q[1] + t])));
+  const nx = xs.length - 1, ny = ys.length - 1;
+  const near = (c) => rooms.some((p) => {
+    const [x0, y0, x1, y1] = bboxOf(p);
+    if (c[0] < x0 - t || c[0] > x1 + t || c[1] < y0 - t || c[1] > y1 + t) return false;
+    if (inPolygon(c, p)) return true;
+    return p.some((a, i) => {
+      const b = p[(i + 1) % p.length];
+      return Math.max(a[0], b[0]) >= c[0] - t && Math.min(a[0], b[0]) <= c[0] + t && Math.max(a[1], b[1]) >= c[1] - t && Math.min(a[1], b[1]) <= c[1] + t;
+    });
+  });
+  const full = new Uint8Array(nx * ny);
+  for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) full[i * ny + j] = near([(xs[i] + xs[i + 1]) / 2, (ys[j] + ys[j + 1]) / 2]) ? 1 : 0;
+  const on = (i, j) => i >= 0 && j >= 0 && i < nx && j < ny && full[i * ny + j] === 1;
+  const next = /* @__PURE__ */ new Map(), key = (i, j) => `${i},${j}`;
+  const add2 = (a, b) => {
+    const k = key(...a);
+    next.set(k, [...next.get(k) ?? [], b]);
+  };
+  for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) {
+    if (!on(i, j)) continue;
+    if (!on(i, j - 1)) add2([i, j], [i + 1, j]);
+    if (!on(i + 1, j)) add2([i + 1, j], [i + 1, j + 1]);
+    if (!on(i, j + 1)) add2([i + 1, j + 1], [i, j + 1]);
+    if (!on(i - 1, j)) add2([i, j + 1], [i, j]);
+  }
+  let best = [], bestArea = 0;
+  for (const k0 of [...next.keys()]) {
+    while (next.get(k0)?.length) {
+      const loop = [];
+      let k = k0;
+      while (next.get(k)?.length) {
+        const [i, j] = k.split(",").map(Number), b = next.get(k).pop();
+        loop.push([xs[i], ys[j]]);
+        k = key(...b);
+      }
+      const area3 = loop.reduce((s, a, i) => {
+        const b = loop[(i + 1) % loop.length];
+        return s + a[0] * b[1] - b[0] * a[1];
+      }, 0) / 2;
+      if (area3 > bestArea) {
+        bestArea = area3;
+        best = loop;
+      }
+    }
+  }
+  return best.filter((p, i) => {
+    const a = best[(i - 1 + best.length) % best.length], b = best[(i + 1) % best.length];
+    return !(a[0] === p[0] && p[0] === b[0] || a[1] === p[1] && p[1] === b[1]);
+  });
+}
+function grownUnion(rooms, t) {
+  const polys = rooms.map((p) => grown(signedArea(p) < 0 ? [...p].reverse() : p, t));
+  const E = 1e-7, key = (p) => `${Math.round(p[0] * 1e5)},${Math.round(p[1] * 1e5)}`;
+  const segs = [];
+  polys.forEach((P, i) => P.forEach((a, k) => {
+    const b = P[(k + 1) % P.length], dx = b[0] - a[0], dy = b[1] - a[1], ts = [0, 1];
+    polys.forEach((Q, j) => {
+      if (j !== i) Q.forEach((c, m) => {
+        const e = Q[(m + 1) % Q.length], ex = e[0] - c[0], ey = e[1] - c[1], den = dx * ey - dy * ex;
+        if (Math.abs(den) < 1e-12) {
+          for (const q of [c, e]) {
+            const u2 = ((q[0] - a[0]) * dx + (q[1] - a[1]) * dy) / (dx * dx + dy * dy);
+            if (u2 > E && u2 < 1 - E && Math.abs((q[0] - a[0]) * dy - (q[1] - a[1]) * dx) < 1e-9) ts.push(u2);
+          }
+          return;
+        }
+        const u = ((c[0] - a[0]) * ey - (c[1] - a[1]) * ex) / den, v = ((c[0] - a[0]) * dy - (c[1] - a[1]) * dx) / den;
+        if (u > E && u < 1 - E && v > -E && v < 1 + E) ts.push(u);
+      });
+    });
+    ts.sort((p, q) => p - q);
+    for (let s = 0; s + 1 < ts.length; s++) {
+      if (ts[s + 1] - ts[s] < E) continue;
+      const p = [a[0] + dx * ts[s], a[1] + dy * ts[s]], q = [a[0] + dx * ts[s + 1], a[1] + dy * ts[s + 1]], m = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+      const keep = polys.every((Q, j) => j === i || (distToPolygonEdges(m, Q) < 1e-7 ? j > i : !pointInPolygon(m, Q, 0)));
+      if (keep) segs.push([p, q]);
+    }
+  }));
+  const from = /* @__PURE__ */ new Map();
+  segs.forEach(([p], i) => from.set(key(p), [...from.get(key(p)) ?? [], i]));
+  const used = /* @__PURE__ */ new Set();
+  let best = [], bestArea = 0;
+  for (let s0 = 0; s0 < segs.length; s0++) {
+    if (used.has(s0)) continue;
+    const loop = [];
+    for (let s = s0; s !== void 0; s = (from.get(key(segs[s][1])) ?? []).find((x) => !used.has(x))) {
+      used.add(s);
+      loop.push(segs[s][0]);
+    }
+    const a = signedArea(loop);
+    if (Math.abs(a) > bestArea) {
+      bestArea = Math.abs(a);
+      best = a < 0 ? [...loop].reverse() : loop;
+    }
+  }
+  const clean = (l) => l.filter((p, i) => {
+    const a = l[(i - 1 + l.length) % l.length], b = l[(i + 1) % l.length];
+    return Math.abs((p[0] - a[0]) * (b[1] - p[1]) - (p[1] - a[1]) * (b[0] - p[0])) > 1e-9;
+  });
+  return clean(best);
+}
+function grown(p, t, limit = 2) {
+  const out = [], n = p.length;
+  for (let i = 0; i < n; i++) {
+    const a = p[(i + n - 1) % n], b = p[i], c = p[(i + 1) % n];
+    const nrm = (u2, v) => {
+      const dx = v[0] - u2[0], dy = v[1] - u2[1], l = Math.hypot(dx, dy) || 1;
+      return [dy / l, -dx / l];
+    };
+    const n1 = nrm(a, b), n2 = nrm(b, c), sx = n1[0] + n2[0], sy = n1[1] + n2[1], sl = Math.hypot(sx, sy);
+    if (sl < 1e-9) {
+      out.push([b[0] + n1[0] * t, b[1] + n1[1] * t]);
+      continue;
+    }
+    const u = [sx / sl, sy / sl], m = t / (sl / 2);
+    if (m <= limit * t + 1e-12) {
+      out.push([b[0] + u[0] * m, b[1] + u[1] * m]);
+      continue;
+    }
+    const L = limit * t, w = [-u[1], u[0]];
+    for (const q of [n1, n2]) {
+      const s = (t - L * (u[0] * q[0] + u[1] * q[1])) / (w[0] * q[0] + w[1] * q[1]);
+      out.push([b[0] + u[0] * L + w[0] * s, b[1] + u[1] * L + w[1] * s]);
+    }
+  }
+  return out;
+}
+
+// packages/core/src/authoring/plan.ts
+var num2 = external_exports.number().finite();
+var pt = external_exports.tuple([num2, num2]);
+var id2 = external_exports.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]*$/, "letters, digits, - _ .");
+var side = external_exports.enum(["N", "S", "E", "W"]).describe('wall of the room facing that side (N = +y, S = −y, E = +x, W = −x; plan up = N); in an L or U room the one that holds "along", else the longest');
+var CalibrationSchema = external_exports.strictObject({
+  pxPerM: num2.positive().describe("pixels per metre of the source image"),
+  originPx: pt.describe("pixel that becomes the project origin (x = 0, y = 0)"),
+  methods: external_exports.array(external_exports.strictObject({ method: external_exports.string(), pxPerM: num2.positive(), note: external_exports.string().optional() })).optional().describe("independent scale estimates (scale bar, printed area, door width…) — the build reports their agreement")
+});
+var RoomSchema2 = external_exports.strictObject({
+  id: id2,
+  name: external_exports.string().min(1),
+  names: NamesSchema.optional().describe('the name in other languages (language code → name), e.g. {"en": "Kitchen"} next to a Polish name'),
+  level: id2,
+  kind: RoomKindSchema,
+  tags: external_exports.array(external_exports.string()).optional(),
+  label: external_exports.string().optional(),
+  rect: external_exports.tuple([num2, num2, num2, num2]).optional().describe("[x0, y0, x1, y1] of the inner wall faces"),
+  polygon: external_exports.array(pt).min(3).optional().describe("inner wall faces, edges along the plan axes or at 45° to them, corners in order along the outline"),
+  ceiling: num2.positive().optional().describe("ceiling height above this room floor [m]; default: level ceiling"),
+  areaPrinted: num2.positive().optional().describe("area printed on the plan [m²] (checked against the computed area)"),
+  source: external_exports.string().optional()
+}).refine((r) => !!r.rect !== !!r.polygon, "give exactly one of rect / polygon");
+var DoorSchema2 = external_exports.strictObject({
+  id: id2,
+  between: external_exports.tuple([id2, id2]).describe('the two rooms on either side; use "exterior" for an outside door'),
+  at: pt.describe("any point in the middle of the door opening (on or inside the wall between the rooms)"),
+  width: num2.positive().describe("clear opening in the masonry [m]"),
+  type: external_exports.enum(["hinged-single", "hinged-double", "folding", "sliding", "pocket", "sectional"]).default("hinged-single").describe("hinged-double: two leaves hinged at both jambs; folding: a bifold — two panels folding to the hinge side; sectional: an overhead (garage) door whose panels lift up and back under the ceiling"),
+  swingInto: id2.optional().describe('hinged, double, folding: the room the leaves open into, or "exterior" for an outward-opening outside door; sectional: the room it lifts into (default: the second room, or the room for an exterior door)'),
+  hinge: external_exports.enum(["left", "right"]).optional().describe("hinged: hinge side as seen from the room the door opens into, looking at the wall; folding: the side the panels fold to"),
+  slideTo: external_exports.enum(["start", "end"]).optional().describe("sliding / pocket: the leaf moves towards the start (smaller coordinate) or end of the opening"),
+  height: num2.positive().optional(),
+  leafHeight: num2.positive().optional(),
+  confidence: external_exports.enum(["confirmed", "probable", "unknown"]).optional(),
+  source: external_exports.string().optional()
+});
+var LineSchema = external_exports.strictObject({ at: num2.describe("coordinate across the ridge (point units)"), height: num2.positive().describe("ceiling height on this line [m]") });
+var SlopeSchema = external_exports.strictObject({
+  ridge: external_exports.enum(["X", "Y"]).describe("the ridge line runs along this plan axis (X: left–right on the plan, Y: up–down)"),
+  ridgeAt: num2.optional().describe("coordinate of the ridge line on the other axis (a point coordinate: px in a px plan); default: middle of the level"),
+  lines: external_exports.array(LineSchema).min(1).max(2).describe("height lines drawn on the plan (e.g. knee wall 1.40 and 2.20); two lines on one side of the ridge give the slope"),
+  pitch: num2.positive().lt(80).optional().describe("roof pitch [°] — needed when only one line is given"),
+  flat: num2.positive().optional().describe("height of the flat ceiling top (collar beams) [m]; default: the level ceiling")
+}).refine((s) => s.lines.length === 2 || s.pitch !== void 0, "give two height lines, or one line and the pitch");
+var rect4 = external_exports.tuple([num2, num2, num2, num2]);
+var RoofPartSchema = external_exports.strictObject({
+  id: id2,
+  level: id2.describe("the level the part covers: its rooms get their ceilings from it"),
+  type: external_exports.enum(["gable", "hip", "shed", "flat"]),
+  rect: rect4.optional().describe('[x0, y0, x1, y1] — OUTER faces of the walls under the part (points); or "rooms"; default: the level outline (it must be a rectangle unless flat)'),
+  rooms: external_exports.array(id2).min(1).optional().describe("the part covers these rooms (their outline grown by the exterior wall)"),
+  polygon: external_exports.array(pt).min(4).optional().describe("flat part only: outer faces of the walls under it, axis-aligned edges"),
+  ridge: external_exports.enum(["X", "Y"]).optional().describe("gable / hip: the ridge runs along this plan axis (default: along the longer side)"),
+  ridgeAt: num2.optional().describe("coordinate of the ridge line on the other axis (a point coordinate); default: the middle"),
+  down: external_exports.enum(["N", "S", "E", "W"]).optional().describe("shed (and a flat roof with a pitch): the side the roof falls towards"),
+  pitch: num2.min(0).lt(80).optional().describe("roof pitch [°] (gable / hip / shed: 5–75; flat: 0–5)"),
+  pitchEnds: num2.positive().lt(80).optional().describe("hip: pitch of the two end planes [°] (default: pitch)"),
+  knee: num2.optional().describe("height above the level floor where the underside of the roof structure meets the OUTER face of the eaves walls [m] (knee wall); default: the level ceiling + slab (a roof on top of the ceiling), for flat: the level ceiling"),
+  lines: external_exports.array(LineSchema).min(1).max(2).optional().describe("instead of knee: ceiling height lines from the plan (1.40 / 2.20); two lines on one side of the ridge give the pitch"),
+  eaves: num2.min(0).optional().describe("overhang at the eaves [m] (default: roof.eaves; flat: 0)"),
+  verge: num2.min(0).optional().describe("overhang at a gable end [m] (default: roof.verge)"),
+  parapet: num2.positive().optional().describe("flat: parapet height above the covering [m]"),
+  source: external_exports.string().optional()
+}).refine((p) => [p.rect, p.rooms, p.polygon].filter(Boolean).length <= 1, "give at most one of rect / rooms / polygon").refine((p) => !p.polygon || p.type === "flat", "a polygon outline is for flat parts only (pitched parts: rectangles)").refine((p) => !(p.knee !== void 0 && p.lines), "give knee or lines, not both");
+var DormerSchema = external_exports.strictObject({
+  id: id2,
+  part: id2.describe("the roof part it stands on"),
+  type: external_exports.enum(["gable", "shed"]),
+  rect: rect4.describe("[x0, y0, x1, y1] — outer faces of its walls in plan (points); the back may stop where it meets the roof — it is carried on to the ridge"),
+  front: num2.positive().describe("height above the level floor of the underside of the dormer roof at its eaves (gable: at the cheeks; shed: at the front) [m]"),
+  pitch: num2.positive().lt(80).describe("pitch of the dormer roof [°]"),
+  window: external_exports.strictObject({ id: id2, room: id2, width: num2.positive(), sill: num2.min(0).optional(), head: num2.positive().optional() }).optional().describe("the window in its front: centred, sill / head above the room floor"),
+  source: external_exports.string().optional()
+});
+var RoofSchema2 = external_exports.strictObject({
+  covering: num2.min(0).default(0.05).describe("covering thickness (tiles, sheet) across the planes [m]"),
+  buildup: num2.positive().default(0.25).describe("thickness of the structure under it (rafters, insulation, lining) [m]"),
+  eaves: num2.min(0).default(0.5).describe("default overhang at the eaves [m]"),
+  verge: num2.min(0).default(0.3).describe("default overhang at a gable end [m]"),
+  ridgeHeight: num2.positive().optional().describe("height of the highest ridge (top of the covering) above z = 0 from the drawings [m] — checked (±10 cm)"),
+  parts: external_exports.array(RoofPartSchema).min(1),
+  dormers: external_exports.array(DormerSchema).default([]),
+  chimneys: external_exports.array(external_exports.strictObject({
+    id: id2,
+    rect: rect4.describe("[x0, y0, x1, y1] (points)"),
+    top: num2.describe("height of its top above z = 0 [m]"),
+    from: id2.optional().describe("the lowest level it stands in (default: the lowest level it is over); a duct that starts at a ceiling — e.g. a kitchen hood vent drawn dashed on the plan below — stands from the level above")
+  })).default([]),
+  confidence: external_exports.enum(["confirmed", "probable", "unknown"]).optional(),
+  source: external_exports.string().optional()
+});
+var PassageSchema = external_exports.strictObject({ between: external_exports.tuple([id2, id2]), at: pt, width: num2.positive(), height: num2.positive().optional() });
+var WindowSchema2 = external_exports.strictObject({
+  id: id2,
+  room: id2,
+  at: pt.describe("a point on the window wall, in the middle of the window"),
+  width: num2.positive().optional().describe("width along the wall [m] (not with outline)"),
+  sill: num2.min(0).optional(),
+  head: num2.positive().optional(),
+  outline: external_exports.array(external_exports.tuple([num2, num2])).min(3).optional().describe("a glazing that is not a rectangle (a gable window under the roof): its corners as [coordinate along the wall (a point coordinate: x for a wall along X, y along Y; px in a px plan), height above the room floor (m)] — instead of width / sill / head; walls along the plan axes only"),
+  passable: external_exports.boolean().optional().describe("floor-level glazed door one can walk through onto the terrain"),
+  group: id2.optional().describe("with outline: the glazing this window is part of — one glazing split by a partition into a window per room gets the same group in each room; the app divides and colours its parts as one"),
+  mullions: external_exports.array(num2).optional().describe("with outline: vertical bars of the glazing as drawn (where its units meet, the middle of a two-leaf unit) — coordinates along the wall like the outline's; the user can change them in the app")
+}).refine((w) => w.width === void 0 !== (w.outline === void 0), "give width (with sill / head) or outline").refine((w) => !w.mullions || !!w.outline, "mullions are for a glazing with an outline").refine((w) => !w.group || !!w.outline, "group is for a glazing with an outline");
+var StairSchema2 = external_exports.strictObject({
+  id: id2,
+  from: id2,
+  to: id2,
+  kind: external_exports.enum(["straight", "l-turn", "u-turn"]).default("u-turn").describe("straight: one flight; l-turn: two flights at a right angle, a landing in the corner; u-turn: two flights side by side, a landing across both"),
+  box: external_exports.tuple([num2, num2, num2, num2]).describe("[x0, y0, x1, y1] — outline of the whole stair (every flight and landing; for an l-turn the box around the L)"),
+  up: external_exports.enum(["N", "S", "E", "W"]).default("S").describe("direction one walks up the (lower) flight (N = +y, plan up); a straight flight arrives at that end of the box, an l-turn or u-turn has its landing there"),
+  turn: external_exports.enum(["left", "right"]).default("right").describe("l-turn, u-turn: which way one turns on the landing going up (towards the upper flight)"),
+  risers: external_exports.number().int().min(2).describe("straight: all the risers; l-turn: the risers of the lower flight; u-turn: risers per flight (both flights have them)"),
+  upperRisers: external_exports.number().int().min(2).optional().describe("l-turn: the risers of the upper flight"),
+  tread: num2.positive(),
+  flightWidth: num2.positive(),
+  gap: num2.min(0).default(0.05).describe("u-turn: the gap between the flights [m]"),
+  note: external_exports.string().optional(),
+  confidence: external_exports.string().optional()
+}).refine((s) => s.kind !== "l-turn" || s.upperRisers !== void 0, "an l-turn needs upperRisers (the risers of the upper flight)").refine((s) => s.kind === "l-turn" || s.upperRisers === void 0, "upperRisers is for l-turn stairs only");
+var FreeWallSchema2 = external_exports.strictObject({
+  id: id2,
+  level: id2,
+  from: pt.describe("one end of the wall's axis (a point)"),
+  to: pt.describe("the other end of the axis"),
+  thickness: num2.positive().optional().describe("thickness about the axis [m] (default: the exterior wall)"),
+  height: num2.positive().optional().describe("top above the level floor [m] (default: the level ceiling)"),
+  openings: external_exports.array(external_exports.strictObject({
+    id: id2,
+    at: pt.describe("a point on the wall in the middle of the opening"),
+    width: num2.positive(),
+    sill: num2.min(0),
+    head: num2.positive(),
+    slats: external_exports.strictObject({ width: num2.positive().default(0.04), depth: num2.positive().optional().describe("default: the wall thickness"), gap: num2.positive().default(0.06) }).optional().describe("the opening filled with vertical slats (a screen)")
+  })).default([]),
+  source: external_exports.string().optional()
+}).describe("a wall that bounds no room: a wing wall beside a garage door, the wall of an entrance porch, a garden wall");
+var TerraceSchema = external_exports.strictObject({
+  id: id2,
+  level: id2.optional().describe("the level it adjoins (default: the lowest — a terrace on the ground; on a higher level it is a slab: a balcony)"),
+  rect: rect4.optional().describe("[x0, y0, x1, y1] of its outline (points); it may run up to the outer face of the walls, not into a room"),
+  polygon: external_exports.array(pt).min(3).optional().describe("its outline (points), instead of rect"),
+  top: num2.optional().describe("height of its surface above the level floor [m] (default -0.02: just below the threshold of a terrace door)"),
+  source: external_exports.string().optional()
+}).refine((t) => !!t.rect !== !!t.polygon, "give exactly one of rect / polygon").describe("a terrace outside the walls: a solid from the ground (on the lowest level) or a slab (higher up) up to its surface");
+var StepsSchema = external_exports.strictObject({
+  id: id2,
+  level: id2.optional().describe("the level the steps lead up to (only the lowest: they stand on the ground)"),
+  box: rect4.describe("[x0, y0, x1, y1] — outline of the steps with the top landing (points)"),
+  up: external_exports.enum(["N", "S", "E", "W"]).describe("direction one walks up them (N = +y, plan up): the foot is at the opposite side of the box"),
+  risers: external_exports.number().int().min(1).describe("the rises from the ground at the foot up to the top (the drawn steps; the last one rises onto the landing)"),
+  top: num2.optional().describe("height of the landing above the level floor [m] (default -0.02: just below the threshold)"),
+  landing: num2.positive().optional().describe("depth of the landing at the top end of the box [m] (default: one tread)"),
+  ground: num2.optional().describe("height of the ground at the foot above the level floor [m] (default: site.groundLevel, or -0.15)"),
+  source: external_exports.string().optional()
+}).describe("outdoor steps (an entrance, a terrace) — not the stairs between levels: equal treads rising from the ground to the landing at the top");
+var FurnitureSchema = external_exports.strictObject({
+  key: id2.optional(),
+  room: id2,
+  catalogId: external_exports.string().min(1),
+  variant: external_exports.string().nullable().optional(),
+  at: pt.optional().describe("centre of the footprint"),
+  rot: num2.optional().describe("0 = front faces +Y, 90 = −X, 180 = −Y, 270 = +X"),
+  wall: side.optional().describe("back against this wall of the room (instead of at / rot)"),
+  along: num2.optional().describe("with wall: coordinate of the item centre along the wall (x for N / S walls, y for E / W walls)"),
+  dims: external_exports.strictObject({ w: num2.optional(), d: num2.optional(), h: num2.optional() }).optional(),
+  elevation: num2.optional(),
+  group: external_exports.string().optional(),
+  materialId: external_exports.string().optional(),
+  basis: external_exports.enum(["dimensioned", "drawn", "approximate"]).optional(),
+  note: external_exports.string().optional(),
+  source: external_exports.string().optional()
+});
+var PointSchema = external_exports.strictObject({
+  id: id2.optional(),
+  type: external_exports.string().min(1),
+  room: id2,
+  height: num2.describe("height above the finished floor [m]"),
+  label: external_exports.string(),
+  at: pt.optional(),
+  wall: side.optional(),
+  along: num2.optional(),
+  width: num2.optional(),
+  notes: external_exports.string().optional()
+});
+var PlanSchema = external_exports.strictObject({
+  $schema: external_exports.string().optional(),
+  schema: external_exports.literal("home-simulator/plan"),
+  version: external_exports.literal(1),
+  project: external_exports.strictObject({
+    id: external_exports.string().regex(/^[a-z0-9][a-z0-9-]*$/),
+    name: external_exports.string().min(1),
+    names: NamesSchema.optional(),
+    description: external_exports.string().optional(),
+    documentTitle: external_exports.string().optional(),
+    language: external_exports.string().optional().describe("the language the names are written in (en, pl); `names` add the other languages"),
+    buildingType: external_exports.enum(["house", "apartment"]),
+    origin: external_exports.string().optional().describe("where the project origin is and how the axes run (human-readable)"),
+    metadata: external_exports.record(external_exports.string(), external_exports.union([external_exports.string(), num2, external_exports.boolean(), external_exports.null()])).optional()
+  }),
+  units: external_exports.enum(["m", "px"]).default("m"),
+  calibration: CalibrationSchema.optional(),
+  /** regularise geometry: snap to 5 mm, align room faces on shared lines, set shared wall thickness to the interior wall
+   *  when it is close (default: on for px plans, off for m plans) */
+  regularize: external_exports.boolean().optional(),
+  source: external_exports.string().describe('default provenance of every fact (e.g. "floor plan image plan.png, calibrated from printed areas")'),
+  defaults: external_exports.strictObject({
+    exteriorWall: num2.positive().default(0.3),
+    interiorWall: num2.positive().default(0.12),
+    slab: num2.positive().default(0.25),
+    doorHeight: num2.positive().default(2.05),
+    leafHeight: num2.positive().default(2),
+    sill: num2.min(0).default(0.85),
+    head: num2.positive().default(2.35),
+    confidence: external_exports.enum(["confirmed", "probable", "unknown"]).default("probable"),
+    basis: external_exports.enum(["dimensioned", "drawn", "approximate"]).default("approximate")
+  }).prefault({}),
+  levels: external_exports.array(external_exports.strictObject({ id: id2, name: external_exports.string(), names: NamesSchema.optional(), floorZ: num2, ceiling: num2.positive().describe("ceiling height above the floor [m]"), cutHeight: num2.positive().optional().describe("section height above the floor [m]; default: 10 cm above the highest window head, at least 2.30, below the ceiling"), slope: SlopeSchema.optional().describe("sloped ceilings of every room on this level (attic): without a roof block it becomes a gable roof part over the level; with one, a cross-check. A room's own `ceiling` is its flat top"), calibration: CalibrationSchema.optional().describe("px plans drawn as one image per level: the scale and origin of THIS level's image (the origin pixel = the same building corner on every image); default: the plan calibration") })).min(1),
+  rooms: external_exports.array(RoomSchema2).min(1),
+  doors: external_exports.array(DoorSchema2).default([]),
+  passages: external_exports.array(PassageSchema).default([]),
+  windows: external_exports.array(WindowSchema2).default([]),
+  roofWindows: external_exports.array(external_exports.strictObject({ id: id2, room: id2, rect: external_exports.tuple([num2, num2, num2, num2]).describe("[x0, y0, x1, y1] of the window in the sloped ceiling, seen from above") })).default([]),
+  roof: RoofSchema2.optional().describe("the roof: parts over the levels (gable, hip, shed, flat), dormers, chimneys; without it a level slope builds a gable part"),
+  stairs: external_exports.array(StairSchema2).default([]),
+  walls: external_exports.array(FreeWallSchema2).default([]).describe("walls that bound no room (they stand from the ground or the slab below their level up to their height); a column is a short one"),
+  terraces: external_exports.array(TerraceSchema).default([]).describe("terraces outside the walls (and balconies: a terrace on a higher level)"),
+  steps: external_exports.array(StepsSchema).default([]).describe("outdoor steps up to an entrance or a terrace"),
+  furniture: external_exports.array(FurnitureSchema).default([]),
+  notIncluded: external_exports.array(external_exports.strictObject({ room: id2, what: external_exports.string(), why: external_exports.string() })).default([]),
+  electrical: external_exports.array(PointSchema).default([]),
+  site: external_exports.strictObject({
+    boundary: external_exports.array(pt).min(3).optional(),
+    margin: num2.positive().optional().describe("plot = building footprint grown by this margin [m]"),
+    groundLevel: num2.default(-0.15).describe("terrain next to the building relative to the lowest floor [m]")
+  }).optional(),
+  sun: external_exports.strictObject({
+    lat: num2.min(-90).max(90),
+    lon: num2.min(-180).max(180),
+    timeZone: external_exports.string().min(1),
+    northAzimuthX: num2.describe("azimuth of the +X axis measured clockwise from geographic north [°] (90 = +X points east)"),
+    confidence: external_exports.enum(["confirmed", "probable", "unknown"]).default("probable"),
+    placeName: external_exports.string().optional()
+  }).optional(),
+  viewpoints: external_exports.array(external_exports.strictObject({ id: id2, name: external_exports.string(), names: NamesSchema.optional(), level: external_exports.string(), at: pt, look: external_exports.tuple([num2, num2, num2]), fov: num2.default(70), hint: external_exports.string().default(""), hints: NamesSchema.optional() })).default([]),
+  defaultView: external_exports.strictObject({ level: id2.optional(), room: id2.optional(), view: external_exports.enum(["exterior", "interior"]).optional() }).optional(),
+  notes: external_exports.record(external_exports.string(), external_exports.string()).optional().describe("per room: where its default layout comes from"),
+  capabilities: external_exports.array(external_exports.enum(["interiors", "electrical", "variants", "walk"])).optional().describe("sections the app offers for this building (default: all four)"),
+  assets: ProjectSchema.shape.assets.describe('model files in the project directory, copied to project.json: model (building GLB instead of the generated shell), site (terrain GLB, needs "site"), environment (surroundings GLB — enables the environment module), bounds, sectionCaps, plinthExtra, groundMeshes'),
+  views: ProjectSchema.shape.views.describe("camera presets, copied to project.json (default: the engine views)"),
+  catalog: ProjectSchema.shape.catalog.describe(`the project's own furniture / material catalog files (ids "<project id>:…"), copied to project.json`),
+  dataSources: external_exports.record(external_exports.string(), external_exports.string()).optional()
+});
+
+// packages/core/src/package/range.ts
+var COORD_LIMIT = 1e4;
+var step = (parent, k) => {
+  if (!Array.isArray(parent)) return `.${k}`;
+  const id3 = parent[Number(k)]?.id;
+  return typeof id3 === "string" ? `[${id3}]` : `[${k}]`;
+};
+function outOfRange(p, max = 10) {
+  const out = [];
+  const walk = (v, path7) => {
+    if (out.length >= max) return;
+    if (typeof v === "number") {
+      if (!Number.isFinite(v) || Math.abs(v) > COORD_LIMIT) out.push(`${path7} = ${v}`);
+      return;
+    }
+    if (v && typeof v === "object") for (const k of Object.keys(v)) walk(v[k], `${path7}${step(v, k)}`);
+  };
+  walk(p.building, "building");
+  if (p.site) walk(p.site, "site");
+  return out;
+}
+var rangeMessage = (found) => `coordinates and sizes must be finite and within ${COORD_LIMIT / 1e3} km of the project origin (metres): ${found.join("; ")}`;
+
+// packages/core/src/authoring/roof.ts
+var r3 = (x) => Math.round(x * 1e3) / 1e3 + 0;
+var tan = (deg2) => Math.tan(deg2 * Math.PI / 180);
+var deg = (k) => Math.atan(k) * 180 / Math.PI;
+var rectOf = (a, b) => [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
+var bboxOf2 = (pts) => [Math.min(...pts.map((p) => p[0])), Math.min(...pts.map((p) => p[1])), Math.max(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[1]))];
+var grow2 = (r, d) => [r[0] - d, r[1] - d, r[2] + d, r[3] + d];
+var rectPolygon2 = (r) => [[r[0], r[1]], [r[2], r[1]], [r[2], r[3]], [r[0], r[3]]];
+var r3Rect = (r) => r.map(r3);
+var gablePlanes = (ax, r, zr, k) => ax === 1 ? [{ gx: 0, gy: -k, z0: zr + k * r }, { gx: 0, gy: k, z0: zr - k * r }] : [{ gx: -k, gy: 0, z0: zr + k * r }, { gx: k, gy: 0, z0: zr - k * r }];
+function compileRoof(ctx) {
+  const { plan, P, along, polys, err, warn } = ctx, D = plan.defaults, t = D.exteriorWall;
+  const levels = new Map(plan.levels.map((l) => [l.id, l]));
+  const roomsOf = (level) => plan.rooms.filter((r) => r.level === level);
+  const grownRooms2 = (level) => roomsOf(level).map((r) => grownPolygon(polys.get(r.id), t));
+  const above = (level) => plan.levels.filter((l) => l.floorZ > (levels.get(level)?.floorZ ?? 0) + 0.01).map((l) => l.id);
+  const overLevel = (level, x, y) => grownRooms2(level).some((g) => inRegion(g, x, y));
+  const R = plan.roof, covering = R?.covering ?? ROOF_DEFAULTS.covering, buildup = R?.buildup ?? ROOF_DEFAULTS.buildup;
+  const eavesDefault = R?.eaves ?? ROOF_DEFAULTS.eaves, vergeDefault = R?.verge ?? ROOF_DEFAULTS.verge;
+  const parts = [];
+  const slopeGable = (lv, rect5) => {
+    const s = lv.slope, ax = s.ridge === "X" ? 1 : 0, lo = rect5[ax] + t, hi = rect5[ax + 2] - t;
+    const r = s.ridgeAt !== void 0 ? along(ax, s.ridgeAt, lv.id) : (lo + hi) / 2;
+    const lines = s.lines.map((l) => ({ at: along(ax, l.at, lv.id), height: l.height }));
+    let k;
+    if (lines.length === 2) {
+      const [a, b] = lines;
+      if ((a.at - r) * (b.at - r) < 0) {
+        err("level.slope", `level "${lv.id}": both slope lines must lie on one side of the ridge`);
+        return null;
+      }
+      k = Math.abs(b.height - a.height) / Math.max(1e-6, Math.abs(b.at - a.at));
+      if (Math.abs(b.at - r) < Math.abs(a.at - r) !== b.height > a.height) err("level.slope", `level "${lv.id}": the ceiling must rise towards the ridge`);
+      if (s.pitch !== void 0 && Math.abs(deg(k) - s.pitch) > 5) warn("level.slope", `level "${lv.id}": the lines give a ${Math.round(deg(k) * 100) / 100}° slope, the pitch says ${s.pitch}°`);
+    } else k = tan(s.pitch);
+    const zr = lv.floorZ + lines[0].height + k * Math.abs(r - lines[0].at), flat = s.flat ?? lv.ceiling;
+    if (zr - lv.floorZ < flat) warn("level.slope", `level "${lv.id}": the slope does not reach the flat ceiling at ${flat} m — check the lines or the pitch`);
+    return { ridge: s.ridge, ax, r, zr, k };
+  };
+  const levelRect = (level) => {
+    const outline = outerOutline(roomsOf(level).map((r) => polys.get(r.id)), t), b = bboxOf2(outline);
+    return { rect: Math.abs(area(outline) - (b[2] - b[0]) * (b[3] - b[1])) < 1e-6 ? b : null, polygon: outline };
+  };
+  if (R) {
+    for (const p of R.parts) {
+      const lv = levels.get(p.level), what = `roof part "${p.id}"`;
+      if (!lv) {
+        err("roof.level", `${what}: unknown level "${p.level}"`);
+        continue;
+      }
+      if (!roomsOf(p.level).length) {
+        err("roof.level", `${what}: level "${p.level}" has no rooms`);
+        continue;
+      }
+      let rect5 = null, polygon = null;
+      if (p.rect) rect5 = rectOf(P([p.rect[0], p.rect[1]], p.level), P([p.rect[2], p.rect[3]], p.level));
+      else if (p.rooms) {
+        const bad = p.rooms.filter((id3) => !polys.has(id3) || plan.rooms.find((r) => r.id === id3).level !== p.level);
+        if (bad.length) {
+          err("roof.rooms", `${what}: ${bad.join(", ")} — not rooms of level "${p.level}"`);
+          continue;
+        }
+        rect5 = grow2(bboxOf2(p.rooms.flatMap((id3) => polys.get(id3))), t);
+      } else if (p.polygon) polygon = ccw(p.polygon.map((q) => P(q, p.level)));
+      else {
+        const o = levelRect(p.level);
+        if (o.rect) rect5 = o.rect;
+        else if (p.type === "flat") polygon = o.polygon;
+        else {
+          err("roof.rect", `${what}: the outline of level "${p.level}" is not a rectangle — give "rect" or "rooms" for every wing`);
+          continue;
+        }
+      }
+      if (rect5) rect5 = r3Rect(rect5);
+      const box = rect5 ?? bboxOf2(polygon), fz = lv.floorZ;
+      const zKnee = fz + (p.knee ?? (p.type === "flat" ? lv.ceiling : lv.ceiling + D.slab));
+      const ridge = p.ridge ?? (box[2] - box[0] >= box[3] - box[1] ? "X" : "Y");
+      const res = { in: p, id: p.id, level: p.level, type: p.type, rect: rect5, polygon, ridge: p.type === "gable" || p.type === "hip" ? ridge : null, r: 0, zr: zKnee, k: 0, pitch: p.pitch ?? 0, planes: [], over: [0, 0, 0, 0], extra: [], ends: {} };
+      const lines = p.lines?.map((l) => ({ at: 0, raw: l.at, height: l.height }));
+      const slopeK = (ax) => {
+        if (lines?.length === 2) {
+          for (const l of lines) l.at = along(ax, l.raw, p.level);
+          const k = Math.abs(lines[1].height - lines[0].height) / Math.max(1e-6, Math.abs(lines[1].at - lines[0].at));
+          if (p.pitch !== void 0 && Math.abs(deg(k) - p.pitch) > 5) warn("roof.pitch", `${what}: the lines give ${Math.round(deg(k) * 10) / 10}°, the pitch says ${p.pitch}°`);
+          return k;
+        }
+        if (lines) for (const l of lines) l.at = along(ax, l.raw, p.level);
+        if (p.pitch === void 0) {
+          if (p.type !== "flat") err("roof.pitch", `${what}: give the pitch (or two height lines)`);
+          return 0;
+        }
+        return tan(p.pitch);
+      };
+      if (p.type === "gable" || p.type === "hip") {
+        const ax = ridge === "X" ? 1 : 0, c0 = box[ax], c1 = box[ax + 2];
+        const r = p.ridgeAt !== void 0 ? along(ax, p.ridgeAt, p.level) : (c0 + c1) / 2, k = slopeK(ax);
+        const zr = lines ? fz + lines[0].height + k * Math.abs(r - lines[0].at) : zKnee + k * Math.max(r - c0, c1 - r);
+        Object.assign(res, { r, zr, k, pitch: deg(k), planes: gablePlanes(ax, r, zr, k) });
+        const [o0, o1] = [p.eaves ?? eavesDefault, p.verge ?? vergeDefault];
+        res.over = ridge === "X" ? [p.type === "hip" ? o0 : o1, o0, p.type === "hip" ? o0 : o1, o0] : [o0, p.type === "hip" ? o0 : o1, o0, p.type === "hip" ? o0 : o1];
+        if (p.type === "hip") {
+          const ke = tan(p.pitchEnds ?? p.pitch ?? deg(k)), zE = zr - k * Math.max(r - c0, c1 - r), e = 1 - ax, e0 = box[e], e1 = box[e + 2];
+          const lo = e === 0 ? { gx: ke, gy: 0, z0: zE - ke * e0 } : { gx: 0, gy: ke, z0: zE - ke * e0 };
+          const hi = e === 0 ? { gx: -ke, gy: 0, z0: zE + ke * e1 } : { gx: 0, gy: -ke, z0: zE + ke * e1 };
+          res.ends = e === 0 ? { W: lo, E: hi } : { S: lo, N: hi };
+          if (2 * ((zr - zE) / ke) > e1 - e0 + 1e-6) warn("roof.hip", `${what}: the hip ends meet before the ridge — the roof becomes a pyramid (tent) roof`);
+          if (p.pitchEnds !== void 0 && (p.pitchEnds < 5 || p.pitchEnds > 75)) err("roof.pitch", `${what}: hip end pitch ${p.pitchEnds}° (5–75°)`);
+        }
+      } else {
+        const down = p.down ?? "S", k = slopeK(down === "S" || down === "N" ? 1 : 0);
+        if (p.type === "shed" || k > 0) {
+          const ax = down === "S" || down === "N" ? 1 : 0, sgn = down === "S" || down === "W" ? 1 : -1, edge = sgn > 0 ? box[ax] : box[ax + 2];
+          const zLow = lines ? fz + lines[0].height - k * sgn * (lines[0].at - edge) : zKnee;
+          const plane = ax === 1 ? { gx: 0, gy: sgn * k, z0: zLow - sgn * k * edge } : { gx: sgn * k, gy: 0, z0: zLow - sgn * k * edge };
+          const zHigh = planeZ(plane, sgn > 0 && ax === 0 ? box[2] : box[0], sgn > 0 && ax === 1 ? box[3] : box[1]);
+          Object.assign(res, { r: sgn > 0 ? box[ax + 2] : box[ax], zr: Math.max(zLow, zHigh), k, pitch: deg(k), planes: [plane] });
+        } else Object.assign(res, { zr: lines ? fz + lines[0].height : zKnee, planes: [{ gx: 0, gy: 0, z0: lines ? fz + lines[0].height : zKnee }] });
+        const o0 = p.eaves ?? (p.type === "flat" ? 0 : eavesDefault), o1 = p.verge ?? (p.type === "flat" ? o0 : vergeDefault);
+        res.over = down === "S" || down === "N" ? [o1, o0, o1, o0] : [o0, o1, o0, o1];
+      }
+      if (p.type === "flat" ? res.pitch > 5 : res.pitch < 5 || res.pitch > 75) err("roof.pitch", `${what}: pitch ${Math.round(res.pitch * 10) / 10}° (${p.type === "flat" ? "flat: 0–5°" : "5–75°"})`);
+      if (p.parapet && p.type !== "flat") err("roof.parapet", `${what}: a parapet belongs to a flat part`);
+      parts.push(res);
+    }
+  } else {
+    for (const lv of plan.levels) {
+      if (!lv.slope || !roomsOf(lv.id).length) continue;
+      const o = levelRect(lv.id), rect5 = r3Rect(o.rect ?? bboxOf2(o.polygon));
+      if (!o.rect) warn("roof.outline", `level "${lv.id}": the outline is not a rectangle — the gable from its slope covers the bounding rectangle; describe the wings in a "roof" block`);
+      const g = slopeGable(lv, rect5);
+      if (!g) continue;
+      const res = { in: null, id: `slope-${lv.id}`, level: lv.id, type: "gable", rect: rect5, polygon: null, ridge: g.ridge, r: g.r, zr: g.zr, k: g.k, pitch: deg(g.k), planes: gablePlanes(g.ax, g.r, g.zr, g.k), over: [0, 0, 0, 0], extra: [], ends: {} };
+      const e = gableExtent(rect5, g.ridge, ROOF_DEFAULTS.eaves, ROOF_DEFAULTS.verge);
+      res.over = [rect5[0] - e[0], rect5[1] - e[1], e[2] - rect5[2], e[3] - rect5[3]];
+      parts.push(res);
+    }
+  }
+  const ids = /* @__PURE__ */ new Set();
+  for (const p of parts) {
+    if (ids.has(p.id)) err("roof.id", `roof part "${p.id}": repeated id`);
+    ids.add(p.id);
+  }
+  for (const p of parts) {
+    const b = p.rect ?? bboxOf2(p.polygon), up = above(p.level), e = 0.02;
+    const sides = [[[b[0], b[1]], [b[0], b[3]], [-1, 0]], [[b[0], b[1]], [b[2], b[1]], [0, -1]], [[b[2], b[1]], [b[2], b[3]], [1, 0]], [[b[0], b[3]], [b[2], b[3]], [0, 1]]];
+    sides.forEach(([a, c, out], i) => {
+      const hits = [0.25, 0.5, 0.75].some((s) => up.some((l) => overLevel(l, a[0] + (c[0] - a[0]) * s + out[0] * e, a[1] + (c[1] - a[1]) * s + out[1] * e)));
+      if (hits) p.over[i] = 0;
+    });
+    const h = (t + 0.02) / 2, inPart = (x, y) => !p.polygon || pointInPolygon([x, y], p.polygon, 0) && distToPolygonEdges([x, y], p.polygon) >= h;
+    const overlaps = (g) => {
+      for (let x = g[0] + h; x <= g[2] - h; x += 0.05) for (let y = g[1] + h; y <= g[3] - h; y += 0.05) if (inPart(x, y)) return true;
+      return false;
+    };
+    for (const l of up) for (const g of grownRooms2(l).map(bboxOf2)) {
+      const w = Math.min(g[2], b[2]) - Math.max(g[0], b[0]), d = Math.min(g[3], b[3]) - Math.max(g[1], b[1]);
+      if (w > t + 0.02 && d > t + 0.02 && overlaps([Math.max(g[0], b[0]), Math.max(g[1], b[1]), Math.min(g[2], b[2]), Math.min(g[3], b[3])])) {
+        err("roof.levelAbove", `roof part "${p.id}": level "${l}" stands over it — a roof part covers the top of its level`);
+        break;
+      }
+    }
+  }
+  const extentOf = (p) => {
+    const b = p.rect;
+    return [b[0] - p.over[0], b[1] - p.over[1], b[2] + p.over[2], b[3] + p.over[3]];
+  };
+  const pitched = parts.filter((p) => p.rect && p.ridge);
+  const joins = [];
+  for (const a of pitched) for (const end of a.ridge === "X" ? ["W", "E"] : ["S", "N"]) {
+    const b = a.rect, i = { W: 0, S: 1, E: 2, N: 3 }[end], sgn = end === "W" || end === "S" ? -1 : 1, ax = end === "W" || end === "E" ? 0 : 1;
+    const edge = b[i], mid = ax === 0 ? (b[1] + b[3]) / 2 : (b[0] + b[2]) / 2;
+    const probe = ax === 0 ? [edge + sgn * 0.01, mid] : [mid, edge + sgn * 0.01];
+    const host = pitched.find((h) => h !== a && h.level === a.level && h.ridge !== a.ridge && inRegion(h.rect, probe[0], probe[1]) && h.zr >= a.zr - 0.01);
+    if (!host) continue;
+    joins.push([a, host]);
+    a.over[i] = 0;
+    delete a.ends[end];
+    const he = extentOf(host), ae = extentOf(a), rB = host.r;
+    if ((rB - edge) * sgn > 1e-6) {
+      const strip = ax === 0 ? [Math.min(edge, rB), Math.max(ae[1], he[1]), Math.max(edge, rB), Math.min(ae[3], he[3])] : [Math.max(ae[0], he[0]), Math.min(edge, rB), Math.min(ae[2], he[2]), Math.max(edge, rB)];
+      if (strip[2] - strip[0] > 1e-6 && strip[3] - strip[1] > 1e-6) a.extra.push(r3Rect(strip));
+    } else if ((rB - edge) * sgn < -1e-6) {
+      a.over[i] = -(edge - rB) * sgn;
+    }
+  }
+  for (const p of parts) if (p.type === "hip") p.planes = [...p.planes, ...Object.values(p.ends)];
+  const jsonParts = parts.map((p) => {
+    const extent = p.rect ? [r3Rect(extentOf(p)), ...p.extra] : [];
+    const out = { id: p.id, level: p.level, type: p.type, ...p.rect ? { rect: p.rect } : { polygon: p.polygon.map(([x, y]) => [r3(x), r3(y)]) }, extent, planes: p.planes.map(planeJson) };
+    if (p.polygon) out.extentPolygon = grownPolygon(p.polygon, p.over[0]).map(([x, y]) => [r3(x), r3(y)]);
+    if (p.in?.parapet) out.parapet = p.in.parapet;
+    if (p.ridge) out.ridge = p.ridge;
+    if (p.type !== "flat" || p.pitch) out.pitch = Math.round(p.pitch * 10) / 10;
+    return out;
+  });
+  const partModel = jsonParts.length ? roofModel({ covering, buildup, parts: jsonParts }) : null;
+  const dormers = [], windows = [];
+  for (const d of R?.dormers ?? []) {
+    const p = parts.find((x) => x.id === d.part), what = `dormer "${d.id}"`;
+    if (!p || !p.rect || p.type === "flat") {
+      err("dormer.part", `${what}: "${d.part}" is not a pitched roof part`);
+      continue;
+    }
+    const lv = levels.get(p.level), fz = lv.floorZ, own2 = partModel.byLevel(p.level).filter((q) => q.id === p.id);
+    const rect5 = rectOf(P([d.rect[0], d.rect[1]], p.level), P([d.rect[2], d.rect[3]], p.level));
+    const at2 = (x, y) => surfaceAt({ pieces: own2, which: "inner" }, x, y);
+    const c = at2((rect5[0] + rect5[2]) / 2, (rect5[1] + rect5[3]) / 2);
+    if (!c || Math.abs(c.plane.gx) > 1e-9 === Math.abs(c.plane.gy) > 1e-9) {
+      err("dormer.plane", `${what}: not over a plane of "${p.id}"`);
+      continue;
+    }
+    const P0 = c.plane, front = P0.gx > 0 ? "W" : P0.gx < 0 ? "E" : P0.gy > 0 ? "S" : "N";
+    const fi = { W: 0, S: 1, E: 2, N: 3 }[front], bi = (fi + 2) % 4, ax = front === "W" || front === "E" ? 0 : 1, a = 1 - ax;
+    const corner = (u, f) => ax === 0 ? [f, u] : [u, f];
+    const inset = [0.02, 0.5, 0.98].flatMap((s) => [0.02, 0.5, 0.98].map((r) => [rect5[0] + (rect5[2] - rect5[0]) * s, rect5[1] + (rect5[3] - rect5[1]) * r]));
+    if (inset.some((q) => at2(q[0], q[1])?.plane !== P0)) {
+      err("dormer.plane", `${what}: it does not stand on one plane of "${p.id}" (it crosses a hip, a valley or the ridge)`);
+      continue;
+    }
+    const flush = Math.abs(rect5[fi] - p.rect[fi]) < 0.02;
+    if (flush) rect5[fi] = p.rect[fi];
+    const back = p.r;
+    if ((back - rect5[bi]) * (bi >= 2 ? 1 : -1) > 0) rect5[bi] = back;
+    const cheek = buildup, frontWall = flush ? t : buildup, inner = [...rect5];
+    inner[a] += cheek;
+    inner[a + 2] -= cheek;
+    inner[fi] += fi >= 2 ? -frontWall : frontWall;
+    const zF = fz + d.front, kd = tan(d.pitch), sgnF = fi >= 2 ? -1 : 1;
+    let planes;
+    if (d.type === "gable") {
+      const a0 = rect5[a], a1 = rect5[a + 2];
+      planes = a === 0 ? [{ gx: kd, gy: 0, z0: zF - kd * a0 }, { gx: -kd, gy: 0, z0: zF + kd * a1 }] : [{ gx: 0, gy: kd, z0: zF - kd * a0 }, { gx: 0, gy: -kd, z0: zF + kd * a1 }];
+    } else {
+      const f = rect5[fi];
+      planes = [ax === 0 ? { gx: sgnF * kd, gy: 0, z0: zF - sgnF * kd * f } : { gx: 0, gy: sgnF * kd, z0: zF - sgnF * kd * f }];
+    }
+    const v = vergeDefault, extent = [...rect5];
+    extent[a] -= v;
+    extent[a + 2] += v;
+    extent[fi] += fi >= 2 ? v : -v;
+    const top = (x, y) => Math.min(...planes.map((q) => planeZ(raise(q, buildup + covering), x, y)));
+    const roofTop = (x, y) => surfaceAt({ pieces: own2, which: "cover", lift: buildup + covering }, x, y)?.z ?? -Infinity;
+    const backPts = [rect5[a], (rect5[a] + rect5[a + 2]) / 2, rect5[a + 2]].map((u) => corner(u, rect5[bi]));
+    if (backPts.some((q) => top(q[0], q[1]) > roofTop(q[0], q[1]) + 0.01)) err("dormer.high", `${what}: its roof is higher than the roof of "${p.id}" at the ridge — lower "front" or the pitch`);
+    const frontMid = corner((rect5[a] + rect5[a + 2]) / 2, rect5[fi]);
+    if (zF < planeZ(P0, frontMid[0], frontMid[1]) - 0.01) err("dormer.low", `${what}: its eaves (${d.front} m) are below the roof plane at its front`);
+    const rec = { id: d.id, part: p.id, type: d.type, front, rect: r3Rect(rect5), inner: r3Rect(inner), extent: r3Rect(extent), planes: planes.map(planeJson) };
+    if (d.window) {
+      const w = d.window, room = plan.rooms.find((r) => r.id === w.room);
+      if (!room || room.level !== p.level) err("dormer.window", `${what}: window room "${w.room}" is not on level "${p.level}"`);
+      else if (flush) windows.push({ id: w.id, room: w.room, at: corner((rect5[a] + rect5[a + 2]) / 2, inner[fi]), width: w.width, sill: w.sill, head: w.head });
+      else {
+        rec.window = { id: w.id, roomId: w.room, width: w.width, sill_z: r3(fz + (w.sill ?? D.sill)), head_z: r3(fz + (w.head ?? D.head)) };
+        const face = corner((rect5[a] + rect5[a + 2]) / 2, inner[fi]), under = planeZ(P0, face[0], face[1]), over = Math.min(...planes.map((q) => planeZ(q, face[0], face[1])));
+        if (rec.window.sill_z < under + 0.05 || rec.window.head_z > over) err("dormer.window", `${what}: the window (${w.sill ?? D.sill}–${w.head ?? D.head} m) must lie between the roof below its front (${r3(under - fz)} m) and the dormer roof (${r3(over - fz)} m)`);
+      }
+      if (w.width > inner[a + 2] - inner[a] - 0.1) err("dormer.window", `${what}: a ${w.width} m window does not fit its ${r3(inner[a + 2] - inner[a])} m front`);
+    }
+    dormers.push(rec);
+  }
+  const lowestFirst = [...plan.levels].sort((x, y) => x.floorZ - y.floorZ);
+  const chimneys = (R?.chimneys ?? []).flatMap((c) => {
+    const rect5 = r3Rect(rectOf(P([c.rect[0], c.rect[1]], lowestFirst[0].id), P([c.rect[2], c.rect[3]], lowestFirst[0].id)));
+    const cx = (rect5[0] + rect5[2]) / 2, cy = (rect5[1] + rect5[3]) / 2;
+    if (c.from && !levels.has(c.from)) {
+      err("chimney.level", `chimney "${c.id}": unknown level "${c.from}"`);
+      return [];
+    }
+    const lv = c.from ? levels.get(c.from) : lowestFirst.find((l) => overLevel(l.id, cx, cy));
+    if (!lv || !overLevel(lv.id, cx, cy)) {
+      err("chimney.outside", `chimney "${c.id}": not over the walls of ${c.from ? `level "${c.from}"` : "any level"}`);
+      return [];
+    }
+    return [{ id: c.id, rect: rect5, bottom: r3(lv.floorZ - D.slab), top: c.top }];
+  });
+  const json2 = jsonParts.length ? { covering, buildup, parts: jsonParts, ...dormers.length ? { dormers } : {}, ...chimneys.length ? { chimneys } : {}, ...R?.source ? { source: R.source } : {}, ...R?.confidence ? { confidence: R.confidence } : {} } : null;
+  const model = json2 ? roofModel(json2) : null;
+  const upperWalls = (level) => above(level).flatMap((l) => grownRooms2(l));
+  for (const lv of plan.levels) {
+    const up = above(lv.id);
+    if (model?.byLevel(lv.id).length || !roomsOf(lv.id).length || !model && !up.length) continue;
+    const bare = uncoveredArea(grownRooms2(lv.id), upperWalls(lv.id));
+    if (bare > 0.01) warn("roof.missing", `level "${lv.id}": ${r3(bare)} m² of it have no level and no roof part above (${up.length ? "open at the top" : "a flat slab"}) — add a roof part (flat or pitched)`);
+  }
+  if (!model) return { json: json2, model, windows };
+  const surfaceTop = (level) => ({ pieces: model.byLevel(level), which: "cover", lift: model.thickness });
+  for (const c of chimneys) {
+    const cx = (c.rect[0] + c.rect[2]) / 2, cy = (c.rect[1] + c.rect[3]) / 2;
+    const roofAt = Math.max(-Infinity, ...model.levels.map((l) => surfaceAt(surfaceTop(l), cx, cy)?.z ?? -Infinity));
+    if (Number.isFinite(roofAt) && c.top < roofAt + 0.3) warn("chimney.low", `chimney "${c.id}": its top (${c.top} m) is less than 30 cm above the roof (${r3(roofAt)} m)`);
+  }
+  for (const level of model.levels) {
+    const own2 = parts.filter((p) => p.level === level).map((p) => p.rect ? rectPolygon2(grow2(p.rect, 0.01)) : grownPolygon(p.polygon, 0.01));
+    const bare = uncoveredArea(grownRooms2(level), [...upperWalls(level), ...own2]);
+    if (bare > 0.01) err("roof.cover", `level "${level}": ${r3(bare)} m² of its walls are under no roof part — add a part or widen one`);
+  }
+  for (const [a, host] of joins) {
+    const za = a.zr - a.k * Math.max(a.r - a.rect[a.ridge === "X" ? 1 : 0], a.rect[a.ridge === "X" ? 3 : 2] - a.r);
+    const zb = host.zr - host.k * Math.max(host.r - host.rect[host.ridge === "X" ? 1 : 0], host.rect[host.ridge === "X" ? 3 : 2] - host.r);
+    if (Math.abs(za - zb) > 0.02) warn("roof.eaves", `roof parts "${a.id}" and "${host.id}" meet with their eaves ${Math.round(Math.abs(za - zb) * 100)} cm apart — give them the same knee height`);
+  }
+  if (R?.ridgeHeight !== void 0) {
+    let top = -Infinity;
+    for (const level of model.levels) for (const p of model.byLevel(level)) {
+      const r = surfaceRange(surfaceTop(level), regionPolygon(p.cover));
+      if (r) top = Math.max(top, r[1]);
+    }
+    if (Math.abs(top - R.ridgeHeight) > 0.1) warn("roof.ridgeHeight", `the roof's ridge comes out at ${r3(top)} m, the drawings say ${R.ridgeHeight} m — check the knee height and the pitch`);
+  }
+  return { json: json2, model, windows };
+}
+function grownPolygon(p, d) {
+  if (!d) return p;
+  const n = p.length, s = p.reduce((acc, a, i) => {
+    const b = p[(i + 1) % n];
+    return acc + a[0] * b[1] - b[0] * a[1];
+  }, 0) >= 0 ? 1 : -1;
+  return p.map((b, i) => {
+    const a = p[(i + n - 1) % n], c = p[(i + 1) % n];
+    const e1 = [b[0] - a[0], b[1] - a[1]], e2 = [c[0] - b[0], c[1] - b[1]], l1 = Math.hypot(...e1) || 1, l2 = Math.hypot(...e2) || 1;
+    const n1 = [s * e1[1] / l1, -s * e1[0] / l1], n2 = [s * e2[1] / l2, -s * e2[0] / l2], den = 1 + n1[0] * n2[0] + n1[1] * n2[1];
+    return [b[0] + (n1[0] + n2[0]) * d / den, b[1] + (n1[1] + n2[1]) * d / den];
+  });
+}
+
+// packages/core/src/authoring/compile.ts
+var EPS2 = 1e-6;
+var FOLD_ANGLE = 80;
+var r32 = (x) => Math.round(x * 1e3) / 1e3;
+var r62 = (x) => Math.round(x * 1e6) / 1e6 + 0;
+var r2 = (x) => Math.round(x * 100) / 100;
+var snap5 = (x) => Math.round(x * 200) / 200;
+var cleanZero = (x) => Object.is(x, -0) ? 0 : x;
+var area2 = (p) => p.reduce((s, a, i) => {
+  const b = p[(i + 1) % p.length];
+  return s + a[0] * b[1] - b[0] * a[1];
+}, 0);
+function normalizePolygon(poly) {
+  let p = poly.filter((q, i) => {
+    const n = poly[(i + 1) % poly.length];
+    return Math.abs(q[0] - n[0]) > EPS2 || Math.abs(q[1] - n[1]) > EPS2;
+  });
+  p = p.filter((q, i) => {
+    const a = p[(i + p.length - 1) % p.length], b = p[(i + 1) % p.length];
+    return Math.abs((q[0] - a[0]) * (b[1] - q[1]) - (q[1] - a[1]) * (b[0] - q[0])) > EPS2;
+  });
+  if (area2(p) < 0) p = [...p].reverse();
+  let k = 0;
+  p.forEach((q, i) => {
+    if (q[1] < p[k][1] - EPS2 || Math.abs(q[1] - p[k][1]) <= EPS2 && q[0] < p[k][0]) k = i;
+  });
+  return [...p.slice(k), ...p.slice(0, k)].map(([x, y]) => [cleanZero(r32(x)), cleanZero(r32(y))]);
+}
+var rectPoly = ([x0, y0, x1, y1]) => [[Math.min(x0, x1), Math.min(y0, y1)], [Math.max(x0, x1), Math.min(y0, y1)], [Math.max(x0, x1), Math.max(y0, y1)], [Math.min(x0, x1), Math.max(y0, y1)]];
+var bboxOf3 = (p) => [Math.min(...p.map((q) => q[0])), Math.min(...p.map((q) => q[1])), Math.max(...p.map((q) => q[0])), Math.max(...p.map((q) => q[1]))];
+function inPolygon2(p, poly) {
+  let inside2 = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if (yi > p[1] !== yj > p[1] && p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi) inside2 = !inside2;
+  }
+  return inside2;
+}
+var orthogonal = (p) => p.every((a, i) => {
+  const b = p[(i + 1) % p.length];
+  return Math.abs(a[0] - b[0]) <= EPS2 || Math.abs(a[1] - b[1]) <= EPS2;
+});
+function overlapArea(pa, pb) {
+  const [ax0, ay0, ax1, ay1] = bboxOf3(pa), [bx0, by0, bx1, by1] = bboxOf3(pb);
+  if (Math.min(ax1, bx1) <= Math.max(ax0, bx0) || Math.min(ay1, by1) <= Math.max(ay0, by0)) return 0;
+  if (!orthogonal(pa) || !orthogonal(pb)) {
+    const x0 = Math.max(ax0, bx0), x1 = Math.min(ax1, bx1), y0 = Math.max(ay0, by0), y1 = Math.min(ay1, by1), h = 0.01;
+    const inside2 = (q, p) => inPolygon2(q, p) && distToPolygonEdges(q, p) > 1e-6;
+    let n = 0;
+    for (let x = x0 + h / 2; x < x1; x += h) for (let y = y0 + h / 2; y < y1; y += h) if (inside2([x, y], pa) && inside2([x, y], pb)) n++;
+    return n * h * h;
+  }
+  const xs = [...new Set([...pa, ...pb].map((q) => q[0]))].sort((u, v) => u - v), ys = [...new Set([...pa, ...pb].map((q) => q[1]))].sort((u, v) => u - v);
+  let area3 = 0;
+  for (let i = 0; i + 1 < xs.length; i++) for (let j = 0; j + 1 < ys.length; j++) {
+    const c = [(xs[i] + xs[i + 1]) / 2, (ys[j] + ys[j + 1]) / 2];
+    if (inPolygon2(c, pa) && inPolygon2(c, pb)) area3 += (xs[i + 1] - xs[i]) * (ys[j + 1] - ys[j]);
+  }
+  return area3;
+}
+function edgesOf(roomId, poly) {
+  const out = [];
+  poly.forEach((a, i) => {
+    const b = poly[(i + 1) % poly.length], d = [b[0] - a[0], b[1] - a[1]];
+    if (Math.hypot(d[0], d[1]) <= EPS2) return;
+    const axis = Math.abs(d[1]) <= EPS2 ? "X" : Math.abs(d[0]) <= EPS2 ? "Y" : "D", f = lineFrame(axis, axis === "D" ? canonicalDir(d) : null);
+    const ta = lineT(f, a), tb = lineT(f, b), o = d[1] * f.n[0] - d[0] * f.n[1];
+    out.push({ room: roomId, axis, ...f, a, b, c: lineC(f, a), lo: Math.min(ta, tb), hi: Math.max(ta, tb), out: o > 0 ? 1 : -1 });
+  });
+  return out;
+}
+var alongOf = (e, p) => lineT(e, p);
+var acrossOf = (e, p) => lineC(e, p);
+var parallel = (e1, e2) => e1.axis === e2.axis && (e1.axis !== "D" || Math.abs(e1.dir[0] * e2.dir[1] - e1.dir[1] * e2.dir[0]) < 0.035);
+var inFrameOf = (e, o) => e.axis !== "D" ? o : { c: (acrossOf(e, o.a) + acrossOf(e, o.b)) / 2, lo: Math.min(alongOf(e, o.a), alongOf(e, o.b)), hi: Math.max(alongOf(e, o.a), alongOf(e, o.b)) };
+var lineOf = (e) => e.axis === "D" ? { along: "D", dir: e.dir.map((v) => r62(v)) } : { along: e.axis };
+function compilePlan(input2, opts) {
+  const issues = [], adjustments = [];
+  const err = (code, message) => issues.push({ level: "error", code, message });
+  const warn = (code, message) => issues.push({ level: "warning", code, message });
+  const parsed = PlanSchema.safeParse(input2);
+  if (!parsed.success) {
+    for (const i of parsed.error.issues.slice(0, 60)) err("schema", `${i.path.join(".") || "(root)"}: ${i.message}`);
+    return { project: null, issues, adjustments };
+  }
+  const plan = parsed.data, D = plan.defaults, source = plan.source;
+  let toM = (p, _level) => p;
+  if (plan.units === "px") {
+    const cal = new Map(plan.levels.flatMap((l) => l.calibration ? [[l.id, l.calibration]] : []));
+    if (!plan.calibration && cal.size < plan.levels.length) {
+      err("calibration", 'units "px" need a calibration block (pxPerM, originPx) — for the plan or for every level');
+      return { project: null, issues, adjustments };
+    }
+    toM = ([x, y], level) => {
+      const c = level && cal.get(level) || plan.calibration || [...cal.values()][0];
+      return [(x - c.originPx[0]) / c.pxPerM, (c.originPx[1] - y) / c.pxPerM];
+    };
+    for (const [where, c] of [...plan.calibration ? [["plan", plan.calibration]] : [], ...[...cal].map(([l, c2]) => [`level ${l}`, c2])]) {
+      const all = c.methods ?? [], measured = all.filter((m) => !m.method.startsWith("symbol")), ms = measured.length ? measured : all;
+      if (ms.length < 2) warn("calibration.methods", `${where}: fewer than two independent scale estimates — ask for one known dimension to confirm the scale`);
+      else {
+        const vals = ms.map((m) => m.pxPerM), spread = (Math.max(...vals) - Math.min(...vals)) / c.pxPerM;
+        if (spread > 0.05) warn("calibration.agreement", `${where}: scale estimates differ by ${(spread * 100).toFixed(1)} % (> 5 %): ${ms.map((m) => `${m.method} ${m.pxPerM.toFixed(2)}`).join(", ")}`);
+      }
+    }
+  }
+  const regularize = plan.regularize ?? plan.units === "px";
+  const roomLevel = new Map(plan.rooms.map((r) => [r.id, r.level]));
+  const P = (p, at2) => {
+    const q = toM(p, at2 && (roomLevel.get(at2) ?? at2));
+    return regularize ? [snap5(q[0]), snap5(q[1])] : [r32(q[0]), r32(q[1])];
+  };
+  const levels = new Map(plan.levels.map((l) => [l.id, l]));
+  const sortedLevels = [...plan.levels].sort((a, b) => a.floorZ - b.floorZ);
+  const lowest = sortedLevels[0];
+  const outlines = /* @__PURE__ */ new Map();
+  for (const r of plan.rooms) {
+    if (!levels.has(r.level)) err("room.level", `room "${r.id}": unknown level "${r.level}"`);
+    if (outlines.has(r.id)) err("room.id", `room "${r.id}": repeated id`);
+    const raw = r.rect ? rectPoly([...P([r.rect[0], r.rect[1]], r.level), ...P([r.rect[2], r.rect[3]], r.level)]) : r.polygon.map((q) => P(q, r.level));
+    outlines.set(r.id, raw);
+  }
+  if (regularize) regularizeWalls(plan, outlines, D.interiorWall, adjustments);
+  const polys = /* @__PURE__ */ new Map();
+  for (const r of plan.rooms) {
+    const poly = normalizePolygon(outlines.get(r.id));
+    polys.set(r.id, poly);
+    poly.forEach((a, i) => {
+      const b = poly[(i + 1) % poly.length], deg2 = Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI, off = Math.abs(deg2 / 45 - Math.round(deg2 / 45)) * 45;
+      if (off > 1.5) err("room.angle", `room "${r.id}": edge ${i} runs at ${Math.round((deg2 % 180 + 180) % 180)}° — walls must run along the plan axes or at 45° to them`);
+    });
+    const lk = opts.lock?.rooms[r.id];
+    if (lk && (lk.vertices !== poly.length || Math.abs(lk.first[0] - poly[0][0]) > 0.3 || Math.abs(lk.first[1] - poly[0][1]) > 0.3)) err("ids.lock", `room "${r.id}": the outline changed its vertex count or first corner since the package was released — wall ids would shift (user data refers to them). Re-lock with --force-relock if this is intended.`);
+  }
+  if (opts.lock) {
+    for (const id3 of Object.keys(opts.lock.rooms)) if (!polys.has(id3)) err("ids.lock", `room "${id3}" was released and is missing now`);
+  }
+  const edges = new Map([...polys].map(([id3, p]) => [id3, edgesOf(id3, p)]));
+  const levelOfRoom = (id3) => plan.rooms.find((r) => r.id === id3)?.level;
+  for (const a of plan.rooms) for (const b of plan.rooms) {
+    if (a.id >= b.id || a.level !== b.level) continue;
+    if (overlapArea(polys.get(a.id), polys.get(b.id)) > 0.02 * 0.02) err("room.overlap", `rooms "${a.id}" and "${b.id}" overlap`);
+  }
+  const along = (axis, c, level) => axis === 0 ? P([c, 0], level)[0] : P([0, c], level)[1];
+  const roof = compileRoof({ plan, P, along, polys, err, warn });
+  for (const a of plan.rooms) for (const b of plan.rooms) {
+    if (a.id >= b.id || a.level !== b.level) continue;
+    for (const ea of edges.get(a.id)) for (const e2 of edges.get(b.id)) {
+      if (!parallel(ea, e2) || ea.out === e2.out) continue;
+      const eb = inFrameOf(ea, e2), gap = (eb.c - ea.c) * ea.out, overlap = Math.min(ea.hi, eb.hi) - Math.max(ea.lo, eb.lo);
+      if (gap > 5e-3 && gap < 0.5 && overlap > 0.3 && Math.abs(gap - D.interiorWall) > 0.015 && Math.abs(gap - D.exteriorWall) > 0.015) {
+        warn("wall.thickness", `wall between "${a.id}" and "${b.id}" is ${r32(gap)} m thick (interior ${D.interiorWall}, exterior ${D.exteriorWall}) — check the outlines; if the drawing really shows it, keep it (the shell fills the gap) and note it in the README`);
+      }
+    }
+  }
+  const gaps = /* @__PURE__ */ new Map();
+  const addGap = (roomId, g) => {
+    const l = gaps.get(roomId) ?? [];
+    l.push(g);
+    gaps.set(roomId, l);
+  };
+  const wallBetween = (a, b, p, w, what) => {
+    const ea = edges.get(a), eb = b === "exterior" ? null : edges.get(b);
+    if (!ea) {
+      err("ref", `${what}: unknown room "${a}"`);
+      return null;
+    }
+    if (b !== "exterior" && !eb) {
+      err("ref", `${what}: unknown room "${b}"`);
+      return null;
+    }
+    if (b !== "exterior" && levelOfRoom(a) !== levelOfRoom(b)) {
+      err("ref", `${what}: rooms "${a}" and "${b}" are on different levels`);
+      return null;
+    }
+    let best = null;
+    for (const e1 of ea) {
+      const t = alongOf(e1, p);
+      if (t < e1.lo - 0.05 || t > e1.hi + 0.05) continue;
+      const from = r32(t - w / 2), to = r32(t + w / 2);
+      if (from < e1.lo - 5e-3 || to > e1.hi + 5e-3) continue;
+      if (eb) {
+        for (const o2 of eb) {
+          if (!parallel(e1, o2) || o2.out === e1.out) continue;
+          const e2 = inFrameOf(e1, o2), gap = (e2.c - e1.c) * e1.out;
+          if (gap <= 0 || gap > 0.8 || from < e2.lo - 5e-3 || to > e2.hi + 5e-3) continue;
+          const mid = (e1.c + e2.c) / 2, off = Math.abs(acrossOf(e1, p) - mid), score = off + Math.abs(t - (from + to) / 2);
+          if (off > gap / 2 + 0.3) continue;
+          if (!best || score < best.score) best = { score, res: { axis: e1.axis, frame: e1, faces: [Math.min(e1.c, e2.c), Math.max(e1.c, e2.c)].map(r32), from, to, edgeA: e1, edgeB: o2 } };
+        }
+      } else {
+        const outer = r32(e1.c + e1.out * D.exteriorWall);
+        const blocked = plan.rooms.some((r) => r.id !== a && r.level === levelOfRoom(a) && edges.get(r.id).some((o) => {
+          if (!parallel(o, e1) || o.out === e1.out) return false;
+          const e = inFrameOf(e1, o);
+          return (e.c - e1.c) * e1.out > 0 && (e.c - e1.c) * e1.out < 0.6 && Math.min(e.hi, to) - Math.max(e.lo, from) > 0;
+        }));
+        if (blocked) continue;
+        const score = Math.abs(acrossOf(e1, p) - (e1.c + outer) / 2);
+        if (score > 0.8) continue;
+        if (!best || score < best.score) best = { score, res: { axis: e1.axis, frame: e1, faces: [Math.min(e1.c, outer), Math.max(e1.c, outer)].map(r32), from, to, edgeA: e1, edgeB: null } };
+      }
+    }
+    if (!best) err("door.wall", `${what}: no wall ${b === "exterior" ? `of "${a}" on the outside of the building` : `shared by "${a}" and "${b}"`} holds a ${w} m opening at [${p.map(r32).join(", ")}] — move "at" onto the wall or check the outlines`);
+    return best?.res ?? null;
+  };
+  const doors = [];
+  for (const d of plan.doors) {
+    const [a, b] = d.between, what = `door "${d.id}"`;
+    const p = P(d.at, a), w = d.width;
+    const wall = wallBetween(a, b, p, w, what);
+    if (!wall) continue;
+    const opHeight = d.height ?? D.doorHeight, leafW = r32(w - 0.1);
+    const gap = { ...lineOf(wall.edgeA), from_: wall.from, to: wall.to, across: wall.faces, width: r2(w), door_id: d.id, leaf: r2(leafW), height: opHeight };
+    addGap(a, gap);
+    if (b !== "exterior") addGap(b, { ...gap });
+    const base2 = {
+      id: d.id,
+      level: levelOfRoom(a),
+      rooms: [a, b],
+      floorZ: levels.get(levelOfRoom(a))?.floorZ ?? 0,
+      opening: { ...(({ along: along2, dir }) => dir ? { along: along2, dir } : { along: along2 })(lineOf(wall.edgeA)), from: wall.from, to: wall.to, faces: [...wall.faces], width: r2(w), height: opHeight },
+      leafWidth: r2(leafW),
+      height: d.leafHeight ?? D.leafHeight,
+      type: d.type,
+      source: [d.source ?? source],
+      confidence: d.confidence ?? D.confidence
+    };
+    const f = wall.frame, u = f.dir, at2 = (t, c) => wall.axis === "D" ? linePt(f, t, c).map(r32) : linePt(f, t, c);
+    if (d.type === "hinged-single" || d.type === "hinged-double" || d.type === "folding") {
+      const into = d.swingInto ?? (b === "exterior" ? a : b);
+      if (into !== a && into !== b) {
+        err("door.swing", `${what}: swingInto "${into}" is not one of ${a} / ${b}`);
+        continue;
+      }
+      const intoEdge = into === a ? wall.edgeA : into === "exterior" ? { c: r32(wall.edgeA.c + wall.edgeA.out * D.exteriorWall), out: -wall.edgeA.out } : wall.edgeB;
+      const n = [-intoEdge.out * f.n[0], -intoEdge.out * f.n[1]];
+      const view = [-n[0], -n[1]], right = [view[1], -view[0]];
+      const side2 = d.hinge ?? "left";
+      const rightIsEnd = right[0] * u[0] + right[1] * u[1] > 0;
+      const hingeAtEnd = side2 === "right" ? rightIsEnd : !rightIsEnd;
+      const jamb = hingeAtEnd ? wall.to : wall.from, t = hingeAtEnd ? jamb - 0.05 : jamb + 0.05;
+      const face = intoEdge.c;
+      const hinge = at2(r32(t), face);
+      const closedDir = hingeAtEnd ? [-u[0], -u[1]] : [u[0], u[1]];
+      doors.push({ ...base2, hinge, closedDir: closedDir.map(cleanZero), openDir: n.map(cleanZero), hingeSide: d.type === "hinged-double" ? null : side2, swingInto: into, openAngle: d.type === "folding" ? FOLD_ANGLE : 90, slide: null });
+    } else if (d.type === "sectional") {
+      const into = d.swingInto ?? (b === "exterior" ? a : b);
+      if (into !== a && into !== b || into === "exterior") {
+        err("door.swing", `${what}: a sectional door lifts into one of its rooms (${[a, b].filter((x) => x !== "exterior").join(" / ")}), not "${into}"`);
+        continue;
+      }
+      const intoEdge = into === a ? wall.edgeA : wall.edgeB, n = [-intoEdge.out * f.n[0], -intoEdge.out * f.n[1]];
+      const room = plan.rooms.find((r) => r.id === into), lv = levels.get(room.level), ceiling = room.ceiling ?? lv?.slope?.flat ?? lv?.ceiling ?? 2.6;
+      const leafH = d.leafHeight ?? D.leafHeight;
+      if (leafH + SECTIONAL.rise > ceiling + 5e-3) warn("door.lift", `${what}: its panels lie ${r32(leafH + SECTIONAL.rise)} m high when open, above the ceiling of "${into}" (${r32(ceiling)} m) — lower the leaf or check the ceiling`);
+      doors.push({
+        ...base2,
+        hinge: null,
+        closedDir: null,
+        openDir: null,
+        hingeSide: null,
+        swingInto: into,
+        openAngle: null,
+        slide: null,
+        lift: { origin: at2(r32(wall.from + (w - leafW) / 2), intoEdge.c), dir: u.map(cleanZero), into: n.map(cleanZero) }
+      });
+    } else {
+      const toEnd = (d.slideTo ?? "end") === "end", mid = r32((wall.faces[0] + wall.faces[1]) / 2);
+      const originT = toEnd ? wall.from : wall.to, dir = toEnd ? u : [-u[0], -u[1]];
+      const origin = at2(originT, mid);
+      doors.push({ ...base2, hinge: null, closedDir: null, openDir: null, hingeSide: null, swingInto: null, openAngle: null, slide: { origin, dir: dir.map(cleanZero), travel: r2(leafW) } });
+    }
+  }
+  const inSweep = (q, p) => {
+    const dx = p[0] - q.hinge[0], dy = p[1] - q.hinge[1];
+    return dx * q.closedDir[0] + dy * q.closedDir[1] >= 0 && dx * q.openDir[0] + dy * q.openDir[1] >= 0 && Math.hypot(dx, dy) <= q.radius;
+  };
+  const hinged = doors.filter((d) => d.hinge && d.closedDir && d.openDir && d.swingInto !== "exterior");
+  for (let i = 0; i < hinged.length; i++) for (let j = i + 1; j < hinged.length; j++) {
+    const a = hinged[i], b = hinged[j];
+    if (a.level !== b.level || a.swingInto !== b.swingInto) continue;
+    let hits = 0;
+    for (const sa of leafSectors(a)) for (const sb of leafSectors(b)) {
+      if (Math.hypot(sa.hinge[0] - sb.hinge[0], sa.hinge[1] - sb.hinge[1]) > sa.radius + sb.radius) continue;
+      for (let u = 0.05; u < sa.radius; u += 0.1) for (let v = 0.05; v < sa.radius; v += 0.1) {
+        const p = [sa.hinge[0] + sa.closedDir[0] * u + sa.openDir[0] * v, sa.hinge[1] + sa.closedDir[1] * u + sa.openDir[1] * v];
+        if (inSweep(sa, p) && inSweep(sb, p)) hits++;
+      }
+    }
+    if (hits >= 2) warn("door.swingOverlap", `doors "${a.id}" and "${b.id}" sweep the same floor in "${a.swingInto}" — check the swing sides on the drawing (an entrance door may open outwards: swingInto "exterior")`);
+  }
+  for (const g of plan.passages) {
+    const [a, b] = g.between, p = P(g.at, a), wall = wallBetween(a, b, p, g.width, `passage ${a} ↔ ${b}`);
+    if (!wall) continue;
+    const gap = { ...lineOf(wall.edgeA), from_: wall.from, to: wall.to, across: wall.faces, width: r2(g.width), door_id: null, leaf: null, height: g.height ?? null };
+    addGap(a, gap);
+    if (b !== "exterior") addGap(b, { ...gap });
+  }
+  const windows = /* @__PURE__ */ new Map();
+  const addWindow = (w, p) => {
+    const es = edges.get(w.room);
+    if (!es) {
+      err("ref", `window "${w.id}": unknown room "${w.room}"`);
+      return;
+    }
+    let best = null, bd = Infinity;
+    for (const e of es) {
+      const t2 = alongOf(e, p), dd = Math.abs(acrossOf(e, p) - e.c) + (t2 < e.lo ? e.lo - t2 : t2 > e.hi ? t2 - e.hi : 0);
+      if (dd < bd) {
+        bd = dd;
+        best = e;
+      }
+    }
+    if (!best || bd > 0.6) {
+      err("window.wall", `window "${w.id}": "at" is not on a wall of "${w.room}"`);
+      return;
+    }
+    if (w.outline && best.axis === "D") {
+      err("window.outline", `window "${w.id}": an outline window is for walls along the plan axes`);
+      return;
+    }
+    const corners = w.outline?.map(([a, h]) => [best.axis === "X" ? P([a, 0], w.room)[0] : P([0, a], w.room)[1], h]);
+    const bars = w.mullions?.map((a) => r32(best.axis === "X" ? P([a, 0], w.room)[0] : P([0, a], w.room)[1]));
+    const t = alongOf(best, p), from = corners ? r32(Math.min(...corners.map((q) => q[0]))) : r32(t - w.width / 2), to = corners ? r32(Math.max(...corners.map((q) => q[0]))) : r32(t + w.width / 2);
+    if (bars?.some((m) => m <= from + 0.05 || m >= to - 0.05)) err("window.mullion", `window "${w.id}": a mullion lies outside its outline (or within 5 cm of its side)`);
+    if (from < best.lo - 5e-3 || to > best.hi + 5e-3) err("window.span", `window "${w.id}": ${r32(to - from)} m does not fit the wall (${r32(best.lo)}…${r32(best.hi)})`);
+    const interior = plan.rooms.some((r) => r.id !== w.room && r.level === levelOfRoom(w.room) && edges.get(r.id).some((o) => {
+      if (!parallel(o, best) || o.out === best.out) return false;
+      const e = inFrameOf(best, o);
+      return (e.c - best.c) * best.out > 0 && (e.c - best.c) * best.out < 0.6 && Math.min(e.hi, to) - Math.max(e.lo, from) > 0;
+    }));
+    if (interior) warn("window.interior", `window "${w.id}" sits on an interior wall of "${w.room}"`);
+    const sill = corners ? Math.min(...corners.map((q) => q[1])) : w.sill ?? (w.passable ? 0 : D.sill), head = corners ? Math.max(...corners.map((q) => q[1])) : w.head ?? D.head;
+    const list = windows.get(w.room) ?? [];
+    const fz = levels.get(levelOfRoom(w.room))?.floorZ ?? 0;
+    const plane = best.axis === "D" ? { plane_axis: "D", dir: lineOf(best).dir } : { plane_axis: best.axis === "X" ? "Y" : "X" };
+    list.push({
+      id: w.id,
+      kind: corners ? "glazing" : sill < 0.05 ? "window (floor-to-lintel)" : "window",
+      ...plane,
+      inner: best.axis === "D" ? r62(best.c) : best.c,
+      from_: from,
+      to,
+      sill_z: r32(fz + sill),
+      head_z: r32(fz + head),
+      ...corners ? { polygon_YZ: corners.map(([a, h]) => [r32(a), r32(fz + h)]) } : {},
+      ...bars?.length ? { mullions: [...bars].sort((a, b) => a - b) } : {},
+      ...w.group ? { group: w.group } : {}
+    });
+    windows.set(w.room, list);
+  };
+  for (const w of plan.windows) {
+    if (!edges.has(w.room)) {
+      err("ref", `window "${w.id}": unknown room "${w.room}"`);
+      continue;
+    }
+    addWindow(w, P(w.at, w.room));
+  }
+  for (const w of roof.windows) addWindow(w, w.at);
+  const defaultCut = (l) => {
+    const heads = plan.windows.filter((w) => levelOfRoom(w.room) === l.id).map((w) => w.head ?? D.head);
+    return r32(Math.min(l.ceiling - 0.05, Math.max(2.3, D.doorHeight + 0.1, ...heads.map((h) => h + 0.1))));
+  };
+  const stairs = [];
+  const stairOpenings = /* @__PURE__ */ new Map();
+  const stairArea = /* @__PURE__ */ new Map();
+  for (const s of plan.stairs) {
+    const lf = levels.get(s.from), lt = levels.get(s.to);
+    if (!lf || !lt) {
+      err("stairs.level", `stairs "${s.id}": unknown level`);
+      continue;
+    }
+    const [a, b] = [P([s.box[0], s.box[1]], s.from), P([s.box[2], s.box[3]], s.from)];
+    const box = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
+    const rise = lt.floorZ - lf.floorZ, T = s.tread, fw = s.flightWidth;
+    const rotate = { S: 0, E: 90, N: 180, W: 270 }[s.up], mirror = s.kind !== "straight" && s.turn === "left";
+    const across = rotate % 180 ? box[3] - box[1] : box[2] - box[0], deep = rotate % 180 ? box[2] - box[0] : box[3] - box[1];
+    const head = { id: s.id, fromLevel: s.from, toLevel: s.to, bbox: box }, topZ = r32(rise);
+    const tail = { confidence: s.confidence ?? D.confidence, ...s.note ? { note: s.note } : {}, ...rotate || mirror ? { orient: { rotate, mirror } } : {} };
+    const total = s.kind === "u-turn" ? 2 * s.risers : s.risers + (s.upperRisers ?? 0), riser = r32(rise / total), run = r32((s.risers - 1) * T);
+    if (riser > 0.2 || riser < 0.14) warn("stairs.riser", `stairs "${s.id}": riser ${riser} m (comfortable: 0.15–0.19) — ${total} risers for ${r32(rise)} m`);
+    if (s.kind === "straight") {
+      if (Math.abs(across - fw) > 0.06) warn("stairs.width", `stairs "${s.id}": box is ${r32(across)} m wide, the flight ${fw} m`);
+      if (deep < run - 0.06) err("stairs.depth", `stairs "${s.id}": box is ${r32(deep)} m long, ${s.risers - 1} treads of ${T} m need ${run} m`);
+      else if (deep > run + T + 0.01) warn("stairs.depth", `stairs "${s.id}": box is ${r32(deep - run)} m longer than ${s.risers - 1} treads — the rest is a landing at the upper floor; check the risers and the tread`);
+      stairs.push({ ...{ id: s.id, kind: "straight" }, ...head, risers: s.risers, riser, tread: T, flightWidth: fw, topZ, run: r32(Math.min(run, deep)), ...tail });
+    } else if (s.kind === "l-turn") {
+      const up = s.upperRisers, upperRun = r32((up - 1) * T), landD = deep - run, landW = across - upperRun;
+      if (landD < fw * 0.8 || landW < fw * 0.8) err("stairs.depth", `stairs "${s.id}": box is ${r32(across)} × ${r32(deep)} m — ${s.risers - 1} + ${up - 1} treads of ${T} m leave a landing of ${r32(landW)} × ${r32(landD)} m for flights ${fw} m wide`);
+      else if (landD > fw + 0.6 || landW > fw + 0.6) warn("stairs.depth", `stairs "${s.id}": the landing comes out ${r32(landW)} × ${r32(landD)} m for flights ${fw} m wide — check the risers of each flight and the tread`);
+      stairs.push({ ...{ id: s.id, kind: "l-turn" }, ...head, risers: s.risers, upperRisers: up, riser, tread: T, flightWidth: fw, landingZ: r32(rise * s.risers / total), topZ, run, upperRun, ...tail });
+    } else {
+      const width = 2 * fw + s.gap;
+      if (Math.abs(across - width) > 0.06) warn("stairs.width", `stairs "${s.id}": box is ${r32(across)} m wide across the flights, they need ${r32(width)} m`);
+      if (deep < run + fw * 0.8) err("stairs.depth", `stairs "${s.id}": box is too short for ${s.risers - 1} treads of ${T} m plus a landing`);
+      const cy1 = box[1] + deep;
+      stairs.push({ ...{ id: s.id, kind: "u-turn" }, ...head, risers: s.risers, riser, tread: T, flightWidth: fw, gap: s.gap, landingZ: r32(rise / 2), topZ, split: r32(box[0] + fw + s.gap / 2), run, landingEdge: r32(cy1 - run), ...tail });
+    }
+    const c = [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2];
+    const upper = plan.rooms.find((r) => r.level === s.to && inPolygon2(c, polys.get(r.id)));
+    if (!upper) err("stairs.arrival", `stairs "${s.id}": no room of level "${s.to}" contains the stair box`);
+    else stairOpenings.set(upper.id, box);
+    const lower = plan.rooms.find((r) => r.level === s.from && inPolygon2(c, polys.get(r.id)));
+    if (!lower) err("stairs.start", `stairs "${s.id}": no room of level "${s.from}" contains the stair box`);
+    for (const r of [upper, lower]) if (r) stairArea.set(r.id, (stairArea.get(r.id) ?? 0) + (box[2] - box[0]) * (box[3] - box[1]));
+  }
+  const freeWalls = [];
+  for (const w of plan.walls) {
+    const lv = levels.get(w.level);
+    if (!lv) {
+      err("wall.level", `wall "${w.id}": unknown level "${w.level}"`);
+      continue;
+    }
+    const a = P(w.from, w.level), b = P(w.to, w.level), L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (L < 0.05) {
+      err("wall.length", `wall "${w.id}": its ends are the same point`);
+      continue;
+    }
+    const u = [(b[0] - a[0]) / L, (b[1] - a[1]) / L], z0 = r32(lv.floorZ - D.slab), z1 = r32(lv.floorZ + (w.height ?? lv.ceiling)), t = w.thickness ?? D.exteriorWall;
+    const openings = [];
+    for (const o of w.openings) {
+      const q = P(o.at, w.level), s = (q[0] - a[0]) * u[0] + (q[1] - a[1]) * u[1], off = Math.abs((q[0] - a[0]) * u[1] - (q[1] - a[1]) * u[0]);
+      const t0 = r32(s - o.width / 2), t1 = r32(s + o.width / 2);
+      if (off > t / 2 + 0.3) err("wall.opening", `wall "${w.id}": opening "${o.id}" is not on the wall (${r32(off)} m off its axis)`);
+      if (t0 < -5e-3 || t1 > L + 5e-3) err("wall.opening", `wall "${w.id}": opening "${o.id}" (${o.width} m) does not fit the wall (0…${r32(L)})`);
+      if (lv.floorZ + o.head > z1 + 1e-6) err("wall.opening", `wall "${w.id}": opening "${o.id}" is higher than the wall`);
+      openings.push({ id: o.id, t0, t1, z0: r32(lv.floorZ + o.sill), z1: r32(lv.floorZ + o.head), ...o.slats ? { infill: { kind: "slats", width: o.slats.width, depth: o.slats.depth ?? t, gap: o.slats.gap } } : {} });
+    }
+    freeWalls.push({ id: w.id, level: w.level, a, b, thickness: t, z0, z1, openings });
+  }
+  const platforms = [];
+  const ground = r32(lowest.floorZ + (plan.site?.groundLevel ?? -0.15)), base = r32(lowest.floorZ - D.slab);
+  const outsideRooms = (what, level, poly) => {
+    for (const r of plan.rooms) if (r.level === level && overlapArea(poly, polys.get(r.id)) > 0.02 * 0.02) err("platform.overlap", `${what} reaches into room "${r.id}" — it lies outside the walls (up to their outer face)`);
+  };
+  for (const t of plan.terraces) {
+    const level = t.level ?? lowest.id, lv = levels.get(level), what = `terrace "${t.id}"`;
+    if (!lv) {
+      err("platform.level", `${what}: unknown level "${level}"`);
+      continue;
+    }
+    const poly = normalizePolygon(t.rect ? rectPoly([...P([t.rect[0], t.rect[1]], level), ...P([t.rect[2], t.rect[3]], level)]) : t.polygon.map((q) => P(q, level)));
+    if (area2(poly) / 2 < 0.01) {
+      err("platform.outline", `${what}: its outline has no area`);
+      continue;
+    }
+    const top = r32(lv.floorZ + (t.top ?? -0.02)), onGround = level === lowest.id, bottom = onGround ? base : r32(top - D.slab);
+    if (onGround && top <= base) {
+      err("platform.top", `${what}: its top (${top} m) is not above the underside of the ground-floor slab (${base} m)`);
+      continue;
+    }
+    if (onGround && top < ground - 5e-3) warn("platform.top", `${what}: its top (${top} m) lies below the ground (${ground} m)`);
+    outsideRooms(what, level, poly);
+    platforms.push({ id: t.id, level, kind: "terrace", bottom, blocks: [{ polygon: poly, top }] });
+  }
+  for (const s of plan.steps) {
+    const level = s.level ?? lowest.id, lv = levels.get(level), what = `steps "${s.id}"`;
+    if (!lv) {
+      err("platform.level", `${what}: unknown level "${level}"`);
+      continue;
+    }
+    if (level !== lowest.id) {
+      err("platform.level", `${what}: outdoor steps stand on the ground — give the lowest level "${lowest.id}"`);
+      continue;
+    }
+    const a = P([s.box[0], s.box[1]], level), b = P([s.box[2], s.box[3]], level);
+    const [x0, y0, x1, y1] = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])];
+    const top = r32(lv.floorZ + (s.top ?? -0.02)), foot = s.ground !== void 0 ? r32(lv.floorZ + s.ground) : ground, rise = (top - foot) / s.risers;
+    const len2 = s.up === "N" || s.up === "S" ? y1 - y0 : x1 - x0, landing = s.landing ?? len2 / s.risers, tread = s.risers > 1 ? (len2 - landing) / (s.risers - 1) : 0;
+    if (len2 < 0.05 || (s.up === "N" || s.up === "S" ? x1 - x0 : y1 - y0) < 0.05) {
+      err("platform.outline", `${what}: the box has no area`);
+      continue;
+    }
+    if (rise <= 0) {
+      err("platform.top", `${what}: the landing (${top} m) is not above the ground at the foot (${foot} m)`);
+      continue;
+    }
+    if (top <= base) {
+      err("platform.top", `${what}: the landing (${top} m) is not above the underside of the ground-floor slab (${base} m)`);
+      continue;
+    }
+    if (landing > len2 + 1e-6) {
+      err("platform.landing", `${what}: the landing (${landing} m) is deeper than the box (${r32(len2)} m)`);
+      continue;
+    }
+    if (rise < 0.1 || rise > 0.2) warn("platform.riser", `${what}: ${s.risers} rise(s) of ${Math.round(rise * 1e3) / 10} cm from the ground (${foot} m) to the landing (${top} m) — 10–20 cm is normal; count the steps again or check the ground level`);
+    if (s.risers > 1 && tread < 0.25) warn("platform.tread", `${what}: treads of ${Math.round(tread * 100)} cm — under 25 cm; check the box and the number of steps`);
+    const all = Array.from({ length: s.risers }, (_, i) => {
+      const d = r32(i * tread), z2 = r32(i === s.risers - 1 ? top : foot + (i + 1) * rise);
+      const r = s.up === "N" ? [x0, y0 + d, x1, y1] : s.up === "S" ? [x0, y0, x1, y1 - d] : s.up === "E" ? [x0 + d, y0, x1, y1] : [x0, y0, x1 - d, y1];
+      return { polygon: rectPoly(r.map(r32)), top: z2 };
+    });
+    const blocks = all.filter((k) => k.top > base + 5e-3);
+    if (blocks.length < all.length) warn("platform.below", `${what}: the lowest ${all.length - blocks.length} step(s) lie below the underside of the ground-floor slab (${base} m), where the model ends — left out`);
+    outsideRooms(what, level, all[0].polygon);
+    platforms.push({ id: s.id, level, kind: "steps", bottom: base, blocks });
+  }
+  {
+    const ids = /* @__PURE__ */ new Set();
+    for (const p of platforms) {
+      if (ids.has(p.id)) err("platform.id", `terrace / steps "${p.id}": repeated id`);
+      ids.add(p.id);
+    }
+  }
+  const roofWindows = /* @__PURE__ */ new Map();
+  for (const w of plan.roofWindows) {
+    if (!polys.has(w.room)) {
+      err("ref", `roof window "${w.id}": unknown room "${w.room}"`);
+      continue;
+    }
+    const a = P([w.rect[0], w.rect[1]], w.room), b = P([w.rect[2], w.rect[3]], w.room);
+    roofWindows.set(w.room, [...roofWindows.get(w.room) ?? [], { id: w.id, plan_rect: [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[0], b[0]), Math.max(a[1], b[1])].map(r32) }]);
+  }
+  const ceilings = /* @__PURE__ */ new Map();
+  for (const r of plan.rooms) {
+    const lv = levels.get(r.level), poly = polys.get(r.id), fz = lv?.floorZ ?? 0;
+    const flat = r32(fz + (r.ceiling ?? lv?.slope?.flat ?? lv?.ceiling ?? 2.6)), under = roof.model?.byLevel(r.level) ?? [];
+    const profile = under.length ? roofCeiling(under, flat, fz, poly, (roofWindows.get(r.id) ?? []).map((w) => w.plan_rect)) : flatCeiling(flat, fz, poly);
+    ceilings.set(r.id, { json: profile.kind === "roof" ? { kind: "roof", flat_z: flat } : { kind: "flat", z: flat }, profile });
+  }
+  for (const w of plan.roofWindows) {
+    if (!polys.has(w.room)) continue;
+    const r = plan.rooms.find((x) => x.id === w.room), c = ceilings.get(w.room).profile, under = roof.model?.byLevel(r.level) ?? [];
+    if (c.kind !== "roof") {
+      warn("roofWindow.flat", `roof window "${w.id}": room "${w.room}" has no sloped ceiling`);
+      continue;
+    }
+    const [x0, y0, x1, y1] = roofWindows.get(w.room).find((q) => q.id === w.id).plan_rect;
+    const fs7 = surfaceFacets({ pieces: under, which: "inner", cap: c.flatZ }, [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]);
+    const planes = new Set(fs7.map((f) => `${r32(f.plane.gx)},${r32(f.plane.gy)},${r32(f.plane.z0)}`));
+    if (planes.size !== 1 || fs7[0].plane.gx === 0 && fs7[0].plane.gy === 0) err("roofWindow.plane", `roof window "${w.id}": it must lie within one sloped plane of the ceiling of "${w.room}" (it crosses ${planes.size} planes or the flat top)`);
+  }
+  if (plan.roof) for (const lv of plan.levels) {
+    if (!lv.slope) continue;
+    const s = lv.slope, ax = s.ridge === "X" ? 1 : 0, pts = plan.rooms.filter((r) => r.level === lv.id && r.ceiling === void 0).flatMap((r) => polys.get(r.id));
+    if (!pts.length || s.lines.length < 1) continue;
+    const lo = Math.min(...pts.map((q) => q[ax])), hi = Math.max(...pts.map((q) => q[ax])), ridge = s.ridgeAt !== void 0 ? along(ax, s.ridgeAt, lv.id) : (lo + hi) / 2;
+    const lines = s.lines.map((l) => ({ at: along(ax, l.at, lv.id), height: l.height }));
+    const k = lines.length === 2 ? Math.abs(lines[1].height - lines[0].height) / Math.max(1e-6, Math.abs(lines[1].at - lines[0].at)) : Math.tan(s.pitch * Math.PI / 180);
+    const own2 = {
+      id: "slope",
+      kind: "part",
+      level: lv.id,
+      region: [-1e6, -1e6, 1e6, 1e6],
+      inner: [-1e6, -1e6, 1e6, 1e6],
+      cover: [-1e6, -1e6, 1e6, 1e6],
+      planes: atticPlanes({ kind: "attic", ...ax === 1 ? { ridge_y: ridge } : { ridge_x: ridge }, z_at_ridge: lv.floorZ + lines[0].height + k * Math.abs(ridge - lines[0].at), slope: k })
+    };
+    for (const r of plan.rooms.filter((x) => x.level === lv.id && x.ceiling === void 0)) {
+      const poly = polys.get(r.id), fromSlope = roofCeiling([own2], r32(lv.floorZ + (s.flat ?? lv.ceiling)), lv.floorZ, poly, []), c = ceilings.get(r.id).profile;
+      const worst = Math.max(...[...poly, ...poly.map((q, i) => {
+        const n = poly[(i + 1) % poly.length];
+        return [(q[0] + n[0]) / 2, (q[1] + n[1]) / 2];
+      })].map((q) => Math.abs(fromSlope.heightAt(q[0], q[1]) - c.heightAt(q[0], q[1]))));
+      if (worst > 0.05) warn("roof.slope", `room "${r.id}": the roof gives a ceiling up to ${Math.round(worst * 100)} cm away from the level slope — check the knee height, the pitch and the ridge`);
+    }
+  }
+  for (const r of plan.rooms) {
+    const c = ceilings.get(r.id).profile, fz = levels.get(r.level)?.floorZ ?? 0;
+    if (c.kind !== "roof") continue;
+    const es = edges.get(r.id), inward = (e) => [-e.out * 0.01 * e.n[0], -e.out * 0.01 * e.n[1]];
+    const ceilingOver = (e, from, to) => Math.min(...[from + 0.01, (from + to) / 2, to - 0.01].map((t) => {
+      const d = inward(e), p = linePt(e, t, e.c);
+      return c.heightAt(p[0] + d[0], p[1] + d[1]);
+    }));
+    const onWall = (kind, dir, cs, from, to) => es.find((x) => x.axis === kind && (kind !== "D" || !!dir && Math.abs(x.dir[0] * dir[1] - x.dir[1] * dir[0]) < 1e-6) && cs.some((v) => Math.abs(v - x.c) < 1e-5) && from >= x.lo - 0.01 && to <= x.hi + 0.01);
+    for (const o of windows.get(r.id) ?? []) {
+      const e = onWall(o.plane_axis === "D" ? "D" : o.plane_axis === "Y" ? "X" : "Y", o.dir, [o.inner], o.from_, o.to);
+      if (e && o.polygon_YZ) {
+        const d = inward(e), roofAt = (x, y) => (surfaceAt({ pieces: roof.model?.byLevel(r.level) ?? [], which: "inner" }, x, y)?.z ?? fz + c.heightAt(x, y)) - fz;
+        const over = o.polygon_YZ.find(([a, z2]) => {
+          const q = linePt(e, a, e.c);
+          return z2 - fz > roofAt(q[0] + d[0], q[1] + d[1]) + 0.01;
+        });
+        if (over) err("window.roof", `window "${o.id}": its corner at ${r32(over[0])} is ${r32(over[1] - fz)} m high, above the roof plane there — follow the roof plane`);
+      } else if (e && o.head_z - fz > ceilingOver(e, o.from_, o.to) + 0.01) err("window.roof", `window "${o.id}": its head (${r32(o.head_z - fz)} m) is above the roof plane at its wall (${r32(ceilingOver(e, o.from_, o.to))} m) — lower it, or put it in a dormer`);
+    }
+    for (const g of gaps.get(r.id) ?? []) {
+      const e = onWall(g.along, g.dir, g.across, g.from_, g.to), h = g.height ?? (g.door_id ? D.doorHeight : null);
+      if (e && h !== null && h > ceilingOver(e, g.from_, g.to) + 0.01) err("door.roof", `${g.door_id ? `door "${g.door_id}"` : "passage"} in "${r.id}": ${h} m high, the roof plane at its wall is ${r32(ceilingOver(e, g.from_, g.to))} m`);
+    }
+  }
+  const rooms = plan.rooms.map((r) => {
+    const poly = polys.get(r.id), lv = levels.get(r.level), floorZ = lv?.floorZ ?? 0, area3 = r2(Math.abs(area2(poly)) / 2);
+    const bb = bboxOf3(poly);
+    const ce = ceilings.get(r.id);
+    if (r.areaPrinted && Math.abs(area3 - r.areaPrinted) / r.areaPrinted > 0.1) {
+      const fs7 = ce.profile.kind === "roof" ? ce.profile.facets() : null, all = Math.abs(area2(poly)) / 2;
+      const usable = fs7 ? r2(all - areaBelow(fs7, floorZ + 2.2) + (areaBelow(fs7, floorZ + 2.2) - areaBelow(fs7, floorZ + 1.4)) / 2) : null;
+      const st = stairArea.get(r.id) ?? 0, net = st ? r2(area3 - st) : null, netUsable = st && usable !== null ? r2(usable - st) : null;
+      const off = (a) => a === null || Math.abs(a - r.areaPrinted) / r.areaPrinted > 0.1;
+      if (off(usable) && off(net) && off(netUsable)) warn("room.area", `room "${r.id}": computed area ${area3} m²${usable !== null ? ` (usable under the roof ${usable} m²)` : ""}${net !== null ? ` (without the stairs ${net} m²)` : ""} differs from the printed ${r.areaPrinted} m² by more than 10 %`);
+    }
+    return {
+      id: r.id,
+      name: r.name,
+      ...r.label ? { label: r.label } : {},
+      ...r.names ? { names: r.names } : {},
+      level: r.level,
+      floor_z: floorZ,
+      area: area3,
+      area_data: r.areaPrinted ?? area3,
+      id_source: r.source ?? source,
+      bbox: bb,
+      polygon: poly,
+      rectangular: poly.length === 4,
+      ceiling: ce.json,
+      stair_opening: stairOpenings.get(r.id) ?? null,
+      doors: gaps.get(r.id) ?? [],
+      openings: windows.get(r.id) ?? [],
+      roof_windows: roofWindows.get(r.id) ?? [],
+      kind: r.kind,
+      tags: r.tags ?? []
+    };
+  });
+  const cat = opts.catalog && new Map(opts.catalog.map((c) => [c.id, c]));
+  const keys = /* @__PURE__ */ new Map();
+  const sideEdge = (room, side2, along2) => {
+    const axis = side2 === "N" || side2 === "S" ? "X" : "Y", out = side2 === "N" || side2 === "E" ? 1 : -1;
+    const cand = edges.get(room).filter((e) => e.axis === axis && e.out === out);
+    const holding = along2 === void 0 ? [] : cand.filter((e) => along2 >= e.lo - 0.01 && along2 <= e.hi + 0.01);
+    const pick3 = holding.length ? holding : cand;
+    return pick3.reduce((b, e) => (holding.length ? (e.c - b.c) * out > 0 : e.hi - e.lo > b.hi - b.lo) ? e : b);
+  };
+  const items = [];
+  for (const f of plan.furniture) {
+    const it = cat ? cat.get(f.catalogId) : { id: f.catalogId, dimensions: { w: 0, d: 0, h: 0 } };
+    const poly = polys.get(f.room);
+    if (!it) {
+      err("furniture.catalog", `furniture in "${f.room}": unknown catalog item "${f.catalogId}" (see data/furnitureCatalog.json)`);
+      continue;
+    }
+    if (!poly) {
+      err("ref", `furniture "${f.catalogId}": unknown room "${f.room}"`);
+      continue;
+    }
+    const vd = it.variants?.find((v) => v.id === f.variant)?.dimensions ?? {};
+    const dims = { ...it.dimensions, ...vd, ...f.dims ?? {} };
+    if (cat && f.variant && !it.variants?.some((v) => v.id === f.variant)) err("furniture.variant", `furniture "${f.catalogId}" in "${f.room}": unknown variant "${f.variant}" (${(it.variants ?? []).map((v) => v.id).join(", ") || "no variants"})`);
+    let x, y, rot;
+    if (f.wall) {
+      const half = dims.d / 2 + 5e-3;
+      const along2 = f.along !== void 0 ? plan.units === "px" ? P(f.wall === "N" || f.wall === "S" ? [f.along, 0] : [0, f.along], f.room)[f.wall === "N" || f.wall === "S" ? 0 : 1] : f.along : void 0;
+      const e = sideEdge(f.room, f.wall, along2), t = along2 ?? (e.lo + e.hi) / 2;
+      if (f.wall === "S") {
+        x = t;
+        y = e.c + half;
+        rot = 0;
+      } else if (f.wall === "N") {
+        x = t;
+        y = e.c - half;
+        rot = 180;
+      } else if (f.wall === "W") {
+        x = e.c + half;
+        y = t;
+        rot = 270;
+      } else {
+        x = e.c - half;
+        y = t;
+        rot = 90;
+      }
+    } else if (f.at) {
+      [x, y] = P(f.at, f.room);
+      rot = f.rot ?? 0;
+    } else {
+      err("furniture.place", `furniture "${f.catalogId}" in "${f.room}": give "at" (+ rot) or "wall" (+ along)`);
+      continue;
+    }
+    if (!inPolygon2([x, y], poly)) warn("furniture.outside", `furniture "${f.catalogId}" in "${f.room}": centre [${r32(x)}, ${r32(y)}] is outside the room`);
+    const ce = ceilings.get(f.room)?.profile;
+    if (ce?.kind === "roof") {
+      const top = (f.elevation ?? 0) + (dims.h ?? 0), a = rot * Math.PI / 180;
+      const ceilingAt2 = (u, v) => ce.heightAt(x + u * Math.cos(a) - v * Math.sin(a), y + u * Math.sin(a) + v * Math.cos(a));
+      const low = Math.min(...[[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => ceilingAt2(u * dims.w / 2, v * dims.d / 2)));
+      if (top > low + 0.02) warn("furniture.ceiling", `furniture "${f.catalogId}" in "${f.room}": ${r32(top)} m high but the sloped ceiling is ${r32(low)} m above part of it — move it towards the ridge, pick a lower variant or give lower "dims"`);
+    }
+    const base2 = `${f.room}-${f.catalogId}`, n = (keys.get(base2) ?? 0) + 1;
+    keys.set(base2, n);
+    const key = f.key ?? (n === 1 ? base2 : `${base2}-${n}`);
+    items.push({
+      key,
+      room: f.room,
+      catalogId: f.catalogId,
+      variant: f.variant ?? null,
+      x: r32(x),
+      y: r32(y),
+      rot,
+      source: f.source ?? source,
+      basis: f.basis ?? D.basis,
+      note: f.note ?? "",
+      ...f.dims ? { dims: f.dims } : {},
+      ...f.elevation !== void 0 ? { elevation: f.elevation } : {},
+      ...f.group ? { group: f.group } : {},
+      ...f.materialId ? { materialId: f.materialId } : {}
+    });
+  }
+  const seen = /* @__PURE__ */ new Set();
+  for (const it of items) {
+    if (seen.has(it.key)) err("furniture.key", `furniture key "${it.key}" is repeated`);
+    seen.add(it.key);
+  }
+  const points = [];
+  const typeCount = /* @__PURE__ */ new Map();
+  for (const q of plan.electrical) {
+    const poly = polys.get(q.room);
+    if (!poly) {
+      err("ref", `electrical point "${q.label}": unknown room "${q.room}"`);
+      continue;
+    }
+    let x, y;
+    if (q.wall) {
+      const e = sideEdge(q.room, q.wall, q.along), al = q.along ?? (e.lo + e.hi) / 2;
+      [x, y] = q.wall === "S" || q.wall === "N" ? [al, e.c] : [e.c, al];
+    } else if (q.at) [x, y] = P(q.at, q.room);
+    else {
+      err("electrical.place", `electrical point "${q.label}": give "at" or "wall" + "along"`);
+      continue;
+    }
+    const onWall = edges.get(q.room).some((e) => Math.abs(acrossOf(e, [x, y]) - e.c) <= 0.05 && alongOf(e, [x, y]) >= e.lo - 0.01 && alongOf(e, [x, y]) <= e.hi + 0.01);
+    if (!onWall) warn("electrical.wall", `electrical point "${q.label}" in "${q.room}" is not on a wall (within 5 cm) — the engine skips it`);
+    const prefix = q.type.startsWith("socket") ? "S" : q.type.startsWith("switch") ? "SW" : q.type === "board" ? "B" : "P";
+    const n = (typeCount.get(prefix) ?? 0) + 1;
+    typeCount.set(prefix, n);
+    points.push({ id: q.id ?? `${prefix}${n}`, type: q.type, roomId: q.room, x: r32(x), y: r32(y), heightAFFL: q.height, label: q.label, source, status: "source", ...q.width ? { width: q.width } : {}, ...q.notes ? { notes: q.notes } : {} });
+  }
+  let site = null;
+  if (plan.site) {
+    const all = [...polys.values()].flat(), [bx0, by0, bx1, by1] = bboxOf3(all), t = D.exteriorWall;
+    const ground2 = plan.rooms.filter((r) => r.level === lowest.id).map((r) => polys.get(r.id));
+    const footprint = outerOutline(ground2, t).map(([x, y]) => [r32(x), r32(y)]);
+    const m = plan.site.margin ?? 6;
+    const boundary = plan.site.boundary ? plan.site.boundary.map((q) => P(q, lowest.id)) : [[bx0 - t - m, by0 - t - m], [bx1 + t + m, by0 - t - m], [bx1 + t + m, by1 + t + m], [bx0 - t - m, by1 + t + m]].map(([x, y]) => [r32(x), r32(y)]);
+    site = { footprint, boundary, groundLevel: plan.site.groundLevel, levelId: lowest.id };
+    if (all.some((q) => !inPolygon2(q, boundary))) err("site.boundary", "the building is not inside the plot boundary");
+  }
+  const sun = plan.sun ? { lat: plan.sun.lat, lon: plan.sun.lon, gridAzimuthX: plan.sun.northAzimuthX, convergence: 0, trueAzimuthX: plan.sun.northAzimuthX, confidence: plan.sun.confidence, uncertaintyDeg: plan.sun.confidence === "confirmed" ? 2 : 15, timeZone: plan.sun.timeZone, ...plan.sun.placeName ? { placeName: plan.sun.placeName } : {} } : void 0;
+  if (sun) {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: sun.timeZone });
+    } catch {
+      err("sun.timeZone", `unknown IANA time zone "${sun.timeZone}"`);
+    }
+  }
+  {
+    const named = [
+      [`project`, plan.project.names],
+      ...plan.levels.map((l) => [`level "${l.id}"`, l.names]),
+      ...plan.rooms.map((r) => [`room "${r.id}"`, r.names]),
+      ...plan.viewpoints.map((v) => [`viewpoint "${v.id}"`, v.names])
+    ];
+    for (const l of new Set(named.flatMap(([, n]) => Object.keys(n ?? {})))) {
+      const missing = named.filter(([, n]) => !n?.[l]).map(([w]) => w);
+      if (l === plan.project.language) warn("names.language", `names in "${l}" repeat the language the names are written in (project.language) — leave them out`);
+      else if (missing.length) warn("names.missing", `names in "${l}" are missing for ${missing.slice(0, 6).join(", ")}${missing.length > 6 ? ` and ${missing.length - 6} more` : ""} — the app would mix languages`);
+    }
+  }
+  const viewpoints = plan.viewpoints.map((v) => {
+    const lv = v.level === "SITE" ? lowest.id : v.level, p = P(v.at, lv), look = P([v.look[0], v.look[1]], lv);
+    return { id: v.id, name: v.name, ...v.names ? { names: v.names } : {}, p, level: v.level, look: [look[0], look[1], v.look[2]], fov: v.fov, hint: v.hint, ...v.hints ? { hints: v.hints } : {} };
+  });
+  const modules = [...site ? ["site"] : [], ...plan.assets?.environment ? ["environment"] : [], ...sun ? ["sun"] : [], ...stairs.length ? ["stairs"] : []];
+  if (plan.assets?.site && !site) err("assets.site", 'a terrain model needs the "site" block');
+  const dv = plan.defaultView;
+  const project = {
+    schema: "home-simulator/project",
+    version: 1,
+    manifest: {
+      projectId: plan.project.id,
+      name: plan.project.name,
+      ...plan.project.names ? { names: plan.project.names } : {},
+      ...plan.project.description ? { description: plan.project.description } : {},
+      ...plan.project.documentTitle ? { documentTitle: plan.project.documentTitle } : {},
+      ...plan.project.language ? { language: plan.project.language } : {},
+      units: "m",
+      coordinateSystem: { name: "LCS", description: plan.project.origin ?? "origin at the outer corner of the building (bottom-left of the plan); +X right on the plan, +Y up on the plan, +Z up; Z = 0 is the finished floor of the lowest level", up: "Z", handedness: "right" },
+      buildingType: plan.project.buildingType,
+      levels: sortedLevels.map((l) => ({ id: l.id, name: l.name, ...l.names ? { names: l.names } : {}, floorZ: l.floorZ })),
+      dataSources: plan.dataSources ?? { rooms: source, doors: source, interiors: source, electrical: source },
+      modules,
+      capabilities: plan.capabilities ?? ["interiors", "electrical", "variants", "walk"],
+      defaultView: { levelId: dv?.level ?? lowest.id, roomId: dv?.room ?? null, view: dv?.view ?? (plan.project.buildingType === "apartment" ? "interior" : "exterior") },
+      metadata: plan.project.metadata ?? {}
+    },
+    building: {
+      rooms: { levels: Object.fromEntries(sortedLevels.map((l) => [l.id, { name: l.name, floor_z: l.floorZ, cut_height: l.cutHeight ?? defaultCut(l), plan_wall_offset: r32(D.interiorWall / 2) }])), rooms },
+      doors,
+      ...plan.windows.some((w) => w.passable) ? { doorFacts: { passableOpenings: plan.windows.filter((w) => w.passable).map((w) => w.id) } } : {},
+      ...stairs.length ? { stairs } : {},
+      ...freeWalls.length ? { walls: freeWalls } : {},
+      ...platforms.length ? { platforms } : {},
+      shell: { exteriorWall: D.exteriorWall, slab: D.slab },
+      ...roof.json ? { roof: roof.json } : {}
+    },
+    interiors: { items, notIncluded: plan.notIncluded, ...plan.notes ? { notes: plan.notes } : {} },
+    electrical: { points },
+    ...site ? { site } : {},
+    ...sun ? { sun } : {},
+    ...plan.assets ? { assets: plan.assets } : {},
+    ...plan.catalog ? { catalog: plan.catalog } : {},
+    ...plan.views ? { views: plan.views } : {},
+    ...viewpoints.length ? { viewpoints } : {}
+  };
+  const far = outOfRange(project);
+  if (far.length) err("plan.range", rangeMessage(far));
+  return { project: issues.some((i) => i.level === "error") ? null : project, issues, adjustments };
+}
+function regularizeWalls(plan, outlines, t, log) {
+  for (const axis of [0, 1]) {
+    for (const lv of plan.levels) {
+      const ids = plan.rooms.filter((r) => r.level === lv.id).map((r) => r.id);
+      const vals = ids.flatMap((id3) => outlines.get(id3).map((q) => q[axis])).sort((a, b) => a - b);
+      const clusters = [];
+      for (const v of vals) {
+        const c = clusters[clusters.length - 1];
+        if (c && v - c[c.length - 1] <= 0.04) c.push(v);
+        else clusters.push([v]);
+      }
+      const map2 = /* @__PURE__ */ new Map();
+      for (const c of clusters) {
+        const m = snap5(c.reduce((s, v) => s + v, 0) / c.length);
+        for (const v of c) map2.set(v, m);
+      }
+      const slantedEnd = (p, i) => [p[(i + p.length - 1) % p.length], p[(i + 1) % p.length]].some((q) => Math.abs(q[0] - p[i][0]) > EPS2 && Math.abs(q[1] - p[i][1]) > EPS2);
+      for (const id3 of ids) outlines.set(id3, outlines.get(id3).map((q, i, p) => {
+        const n = [q[0], q[1]];
+        if (!slantedEnd(p, i)) n[axis] = map2.get(q[axis]) ?? q[axis];
+        return n;
+      }));
+    }
+    const along = axis === 0 ? "Y" : "X", o = 1 - axis;
+    for (const a of plan.rooms) for (const b of plan.rooms) {
+      if (a.level !== b.level || a.id === b.id) continue;
+      for (const ea of edgesOf(a.id, normalizePolygon(outlines.get(a.id))).filter((e) => e.axis === along && e.out === 1)) {
+        for (const eb of edgesOf(b.id, normalizePolygon(outlines.get(b.id))).filter((e) => e.axis === along && e.out === -1)) {
+          const gap = eb.c - ea.c, overlap = Math.min(ea.hi, eb.hi) - Math.max(ea.lo, eb.lo);
+          if (gap <= 0.01 || overlap < 0.3 || Math.abs(gap - t) < 2e-3 || Math.abs(gap - t) > 0.08) continue;
+          const slanted2 = (id3, e) => {
+            const p = outlines.get(id3);
+            return p.some((q, i) => Math.abs(q[axis] - e.c) < 1e-9 && q[o] >= e.lo - 1e-9 && q[o] <= e.hi + 1e-9 && [p[(i + p.length - 1) % p.length], p[(i + 1) % p.length]].some((r) => Math.abs(r[0] - q[0]) > EPS2 && Math.abs(r[1] - q[1]) > EPS2));
+          };
+          if (slanted2(a.id, ea) || slanted2(b.id, eb)) continue;
+          const c = (ea.c + eb.c) / 2, na = snap5(c - t / 2), nb = r32(na + t);
+          const move = (poly, e, v) => poly.map((q) => Math.abs(q[axis] - e.c) < 1e-9 && q[o] >= e.lo - 1e-9 && q[o] <= e.hi + 1e-9 ? axis === 0 ? [v, q[1]] : [q[0], v] : q);
+          outlines.set(a.id, move(outlines.get(a.id), ea, na));
+          outlines.set(b.id, move(outlines.get(b.id), eb, nb));
+          log.push(`wall ${a.id} | ${b.id}: ${r32(gap)} m → ${t} m (centre line kept at ${r32(c)})`);
+        }
+      }
+    }
+  }
 }
 
 // packages/house-forge/src/common.ts
@@ -25955,27 +26813,77 @@ import fs4 from "node:fs";
 import path4 from "node:path";
 import zlib from "node:zlib";
 
-// packages/core/src/model/stairs.ts
-function stairFrame(s) {
-  const [x0, y0, x1, y1] = s.bbox, r = s.orient?.rotate ?? 0, m = !!s.orient?.mirror;
-  const W = x1 - x0, D = y1 - y0, [cw, cd] = r === 90 || r === 270 ? [D, W] : [W, D];
-  const box = [x0, y0, x0 + cw, y0 + cd];
-  if (!r && !m) return { box, toLocal: (p) => p, toWorld: (q) => q };
-  return {
-    box,
-    toLocal: ([px, py]) => {
-      const ux = px - x0, uy = py - y0;
-      let cx = r === 0 ? ux : r === 90 ? uy : r === 180 ? cw - ux : cw - uy;
-      const cy = r === 0 ? uy : r === 90 ? cd - ux : r === 180 ? cd - uy : ux;
-      if (m) cx = cw - cx;
-      return [x0 + cx, y0 + cy];
-    },
-    toWorld: ([qx, qy]) => {
-      const cx = m ? cw - (qx - x0) : qx - x0, cy = qy - y0;
-      const [ux, uy] = r === 0 ? [cx, cy] : r === 90 ? [cd - cy, cx] : r === 180 ? [cw - cx, cd - cy] : [cy, cw - cx];
-      return [x0 + ux, y0 + uy];
+// packages/core/src/print/joints.ts
+var JOINT = {
+  /** the tab from the outer face of the wall (the wall left over the pocket keeps a wall's thickness) */
+  outer: 1.8,
+  /** tab height, and the least that still holds */
+  height: 1.6,
+  minHeight: 0.8,
+  /** the square a tab is cut from, and the longest stretch of wall without one */
+  tab: 14,
+  every: 45,
+  /** chamfer of the tab top (per side) over its last layers */
+  leadIn: 0.2,
+  leadInHeight: 0.4,
+  /** the pocket's bottom over the tab top */
+  gap: 0.3,
+  /** the pocket mouth widened (per side) over its first layers */
+  mouth: 0.2,
+  mouthHeight: 0.4
+};
+var rect3 = (geo, keep, x0, y0, x1, y1) => keep(new geo.CrossSection([[[x0, y0], [x1, y0], [x1, y1], [x0, y1]]]));
+var unionCs = (geo, keep, list) => list.length ? keep(geo.CrossSection.union(list)) : keep(new geo.CrossSection([]));
+function joinParts(geo, keep, lower, upper, footprint, wall, z2, k, profile, between) {
+  const m = 1 / k, c = profile.clearance, info = { between, z: snap(z2), made: false, tabs: 0, heightMm: 0, clearanceMm: c };
+  const fp = keep(new geo.CrossSection(footprint.map((l) => l.map((p) => [p[0], p[1]]))));
+  const ring = keep(keep(fp.offset(-JOINT.outer * m, "Miter", 2)).subtract(keep(fp.offset(-wall, "Miter", 2))));
+  let band = keep(ring.intersect(keep(lower.slice(z2 - 0.05 * m))));
+  const h = JOINT.height, reach = (c + JOINT.mouth + profile.wall) * m, top = z2 + (h + JOINT.gap + profile.slab) * m;
+  for (let zz = z2 + 0.1 * m; zz < top; zz += 0.2 * m) band = keep(band.intersect(keep(keep(upper.slice(zz)).offset(-reach, "Miter", 2))));
+  band = keep(band.intersect(keep(keep(upper.slice(top - 0.02 * m)).offset(-reach, "Miter", 2))));
+  const s = JOINT.tab * m / 2, squares = [];
+  for (const loop of footprint) loop.forEach((a, i) => {
+    const b = loop[(i + 1) % loop.length], L = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.floor(L * k / JOINT.every);
+    squares.push(rect3(geo, keep, a[0] - s, a[1] - s, a[0] + s, a[1] + s));
+    for (let j = 1; j <= n; j++) {
+      const t = j / (n + 1), x = a[0] + (b[0] - a[0]) * t, y = a[1] + (b[1] - a[1]) * t;
+      squares.push(rect3(geo, keep, x - s, y - s, x + s, y + s));
     }
-  };
+  });
+  let tabs = keep(band.intersect(unionCs(geo, keep, squares)));
+  const w = profile.wall * m;
+  tabs = keep(keep(keep(tabs.offset(-w / 2, "Miter", 2)).offset(w / 2, "Miter", 2)).intersect(band));
+  const pieces = tabs.decompose().map((p) => keep(p)).filter((p) => p.area() * k * k >= 4);
+  info.tabs = pieces.length;
+  const dirs = /* @__PURE__ */ new Set();
+  for (const p of pieces) {
+    const bb = p.bounds(), dx = bb.max[0] - bb.min[0], dy = bb.max[1] - bb.min[1];
+    dirs.add(dx >= dy ? "X" : "Y");
+    if (Math.min(dx, dy) * k > 2 * JOINT.tab / 3) {
+      dirs.add("X");
+      dirs.add("Y");
+    }
+  }
+  if (pieces.length < 3 || dirs.size < 2) {
+    info.reason = `only ${pieces.length} tab(s) fit${dirs.size < 2 && pieces.length ? " along one direction" : ""} — the exterior walls or the slab above are too thin at this scale`;
+    return { lower, upper, info };
+  }
+  const tabsCs = unionCs(geo, keep, pieces);
+  const lead = tabsCs.offset(-JOINT.leadIn * m, "Miter", 2).isEmpty() ? 0 : JOINT.leadIn, leadH = lead ? Math.min(JOINT.leadInHeight, h / 2) : 0;
+  const lip = [prism(keep, tabsCs, snap(z2 - 0.1 * m), snap(z2 + (h - leadH) * m))];
+  if (lead) lip.push(prism(keep, keep(tabsCs.offset(-lead * m, "Miter", 2)), snap(z2 + (h - leadH) * m - 1e-5), snap(z2 + h * m)));
+  const close = (cs) => keep(keep(cs.offset(w / 2, "Miter", 2)).offset(-w / 2, "Miter", 2));
+  const pocket = keep(geo.Manifold.union([
+    prism(keep, close(keep(tabsCs.offset(c * m, "Miter", 2))), snap(z2 - 1 * m), snap(z2 + (h + JOINT.gap) * m)),
+    prism(keep, close(keep(tabsCs.offset((c + JOINT.mouth) * m, "Miter", 2))), snap(z2 - 1 * m), snap(z2 + JOINT.mouthHeight * m))
+  ]));
+  const lo = keep(geo.Manifold.union([lower, ...lip])), up = keep(upper.subtract(pocket));
+  if (keep(keep(geo.Manifold.union(lip)).intersect(up)).volume() > 1e-12) {
+    info.reason = "the tabs would collide with the part above";
+    return { lower, upper, info };
+  }
+  return { lower: lo, upper: up, info: { ...info, made: true, heightMm: h } };
 }
 
 // packages/core/src/print/scale.ts
@@ -26054,6 +26962,22 @@ function solidInputs(data) {
   for (const dm of d.roof?.dormers ?? []) delete dm.window;
   return d;
 }
+function seamed(geo, keep, level, roof, footprint, z0, z1) {
+  const fp = keep(new geo.CrossSection(footprint)), sec = keep(roof.slice(Math.min(z1, z0 + 0.01)));
+  const strip = keep(keep(sec.offset(PROUD, "Miter", 2)).intersect(keep(fp.offset(PROUD, "Miter", 2))));
+  const parts = [level, roof];
+  if (strip.area() > 1e-9) parts.push(prism(keep, strip, snap(z0), snap(z1)));
+  return keep(geo.Manifold.union(parts));
+}
+function withoutRoofOf(data, level) {
+  const d = JSON.parse(JSON.stringify(data));
+  if (!d.roof) return d;
+  const gone = new Set(d.roof.parts.filter((p) => p.level === level).map((p) => p.id));
+  d.roof.parts = d.roof.parts.filter((p) => !gone.has(p.id));
+  d.roof.dormers = (d.roof.dormers ?? []).filter((x) => !gone.has(x.part));
+  if (!d.roof.parts.length) delete d.roof;
+  return d;
+}
 var ccwPoly = (p) => {
   let s = 0;
   for (let i = 0; i < p.length; i++) {
@@ -26062,35 +26986,48 @@ var ccwPoly = (p) => {
   }
   return s < 0 ? [...p].reverse() : p;
 };
-function flightSolid(geo, keep, s, profile, origin, along, x0, x1, floorZ, [z0, z1]) {
+function flightSolid(geo, keep, s, profile, start, along, across, width, floorZ, [z0, z1]) {
   const f = stairFrame(s);
   let cs = keep(new geo.CrossSection([ccwPoly(profile.map((p) => [snap(p[0]), snap(p[1])]))]));
   cs = keep(cs.intersect(keep(new geo.CrossSection([[[-1e3, z0], [1e3, z0], [1e3, z1], [-1e3, z1]]]))));
   if (cs.area() < 1e-8) return null;
-  const w = (p) => f.toWorld(p);
-  const o = w([x0, origin[1]]), uW = w([x0 + along[0], origin[1] + along[1]]), xW = w([x0 + 1, origin[1]]);
-  const U = [uW[0] - o[0], uW[1] - o[1], 0], X = [xW[0] - o[0], xW[1] - o[1], 0], width = x1 - x0;
+  const o = f.toWorld(start), uW = f.toWorld([start[0] + along[0], start[1] + along[1]]), xW = f.toWorld([start[0] + across[0], start[1] + across[1]]);
+  const U = [uW[0] - o[0], uW[1] - o[1], 0], X = [xW[0] - o[0], xW[1] - o[1], 0];
   const det = (U[1] * 1 - 0) * X[0] - U[0] * 1 * X[1];
-  const [W, start] = det > 0 ? [X, o] : [[-X[0], -X[1], 0], [o[0] + X[0] * width, o[1] + X[1] * width]];
+  const [W, o2] = det > 0 ? [X, o] : [[-X[0], -X[1], 0], [o[0] + X[0] * width, o[1] + X[1] * width]];
   const m = keep(cs.extrude(width));
-  return keep(m.transform([U[0], U[1], 0, 0, 0, 0, 1, 0, W[0], W[1], 0, 0, start[0], start[1], floorZ, 1]));
+  return keep(m.transform([U[0], U[1], 0, 0, 0, 0, 1, 0, W[0], W[1], 0, 0, o2[0], o2[1], floorZ, 1]));
 }
 function stairSolid(geo, keep, s, floorZ, [from, to], ramp, reach = 0) {
-  const f = stairFrame(s), [bx0, by0, bx1, by1] = f.box, { tread: t, riser: r, risers, landingZ, split, gap } = s, le = s.landingEdge, P = PROUD, n = risers - 1;
+  const { tread: t, riser: r } = s, P = PROUD, pieces = stairPieces(s), sides = stairSides(s);
   const clip = [Math.max(-1, from - floorZ), Math.min(1e3, to - floorZ)];
-  const run1 = by1 - le, top1 = [];
-  if (ramp) top1.push([0, r], [(n - 1) * t, r * n]);
-  else for (let i = 0; i < n; i++) top1.push([i * t, r * (i + 1)], [(i + 1) * t, r * (i + 1)]);
-  top1.push([run1 + P, r * n]);
-  const f1 = flightSolid(geo, keep, s, [[0, -P], [run1 + P, -P], ...[...top1].reverse()], [0, by1], [0, -1], split + gap / 2, bx1 + P, floorZ, clip);
-  const land = flightSolid(geo, keep, s, [[-P, -P], [le - by0, -P], [le - by0, landingZ], [-P, landingZ]], [0, by0], [0, 1], bx0 - P, bx1 + P, floorZ, clip);
-  const top2 = [[-P, landingZ], [0, landingZ]];
-  if (ramp) top2.push([0, landingZ + r], [(n - 1) * t, landingZ + r * n], [n * t, landingZ + r * n]);
-  else for (let i = 0; i < n; i++) top2.push([i * t, landingZ + r * (i + 1)], [(i + 1) * t, landingZ + r * (i + 1)]);
-  if (reach > 0) top2.push([top2[top2.length - 1][0] + reach, top2[top2.length - 1][1]]);
-  const end2 = top2[top2.length - 1][0];
-  const f2 = flightSolid(geo, keep, s, [[-P, -P], [end2, -P], ...[...top2].reverse()], [0, le], [0, 1], bx0 - P, split - gap / 2, floorZ, clip);
-  const parts = [f1, land, f2].filter((m) => !!m);
+  const same = (a, b) => a[0] === b[0] && a[1] === b[1];
+  const grow3 = (p, n) => {
+    const es = sides.filter((e) => e.piece === p && same(e.out, n));
+    if (es.some((e) => e.outer && e.kind !== "entry" && e.kind !== "exit")) return P;
+    return p === pieces[pieces.length - 1] && p.kind === "landing" && es.some((e) => e.kind === "exit") ? Math.max(es.some((e) => e.outer) ? P : 0, reach) : 0;
+  };
+  const parts = [];
+  pieces.forEach((p, i) => {
+    const [x0, y0, x1, y1] = p.rect;
+    if (p.kind === "landing") {
+      const a = x0 - grow3(p, [-1, 0]), b = x1 + grow3(p, [1, 0]), u0 = -grow3(p, [0, -1]), u1 = y1 - y0 + grow3(p, [0, 1]);
+      parts.push(...[flightSolid(geo, keep, s, [[u0, -P], [u1, -P], [u1, p.z], [u0, p.z]], [a, y0], [0, 1], [1, 0], b - a, floorZ, clip)].filter((m2) => !!m2));
+      return;
+    }
+    const n = p.risers - 1, len2 = flightLength(p), z0 = p.z0, top = [];
+    if (i > 0) top.push([-P, z0], [0, z0]);
+    if (ramp) top.push([0, z0 + r], [(n - 1) * t, z0 + r * n], [len2, z0 + r * n]);
+    else for (let k = 0; k < n; k++) top.push([k * t, z0 + r * (k + 1)], [(k + 1) * t, z0 + r * (k + 1)]);
+    const end = top[top.length - 1];
+    if (i < pieces.length - 1) top.push([len2 + P, end[1]]);
+    else if (reach > 0) top.push([end[0] + reach, end[1]]);
+    const along = p.dir, across = along[0] ? [0, 1] : [1, 0];
+    const [c0, c1] = along[0] ? [y0 - grow3(p, [0, -1]), y1 + grow3(p, [0, 1])] : [x0 - grow3(p, [-1, 0]), x1 + grow3(p, [1, 0])];
+    const u = along[0] > 0 ? x0 : along[0] < 0 ? x1 : along[1] > 0 ? y0 : y1, start = along[0] ? [u, c0] : [c0, u];
+    const m = flightSolid(geo, keep, s, [[top[0][0], -P], [top[top.length - 1][0], -P], ...[...top].reverse()], start, along, across, c1 - c0, floorZ, clip);
+    if (m) parts.push(m);
+  });
   return parts.length ? keep(geo.Manifold.union(parts)) : null;
 }
 function recess(geo, keep, o, u, v, n, a0, a1, c0, c1, d0, d1) {
@@ -26123,7 +27060,7 @@ function windowRecesses(geo, keep, b, level, profile, n, notes) {
 }
 var keepBelow = (keep, m, z2) => keep(m.trimByPlane([0, 0, -1], -z2));
 var keepAbove = (keep, m, z2) => keep(m.trimByPlane([0, 0, 1], z2));
-var loopsSection = (geo, keep, loops) => keep(new geo.CrossSection(loops));
+var loopsSection = (geo, keep, loops2) => keep(new geo.CrossSection(loops2));
 function sectionHeights(b, level, base, top) {
   const floor = b.levelById.get(level).floorZ, zs = /* @__PURE__ */ new Set([Math.round((floor + top) / 2 * 100) / 100]);
   for (const r of roomsOfLevel(b, level)) for (const w of r.windows) {
@@ -26132,9 +27069,9 @@ function sectionHeights(b, level, base, top) {
   }
   return [...zs].filter((z2) => z2 > Math.max(base, floor) + 5e-3 && z2 < top - 5e-3).sort((p, q) => p - q);
 }
-function buildParts(geo, keep, data, n, profile, eaves) {
+function buildParts(geo, keep, data, n, profile, eaves, joints = true) {
   const withWindows = building(data), inputs = solidInputs(data), b = building(inputs), levels = builtLevels(b), notes = [];
-  if (!levels.length) return { parts: [], split: null, notes };
+  if (!levels.length) return { parts: [], split: null, notes, joints: [] };
   const k = mmPerM(n), [lo, hi] = span(b), parts = [], last = levels[levels.length - 1].id;
   const ramp = (s) => s.riser * k < profile.step || s.tread * k < profile.step;
   const built = new Set(levels.map((l) => l.id));
@@ -26167,32 +27104,41 @@ function buildParts(geo, keep, data, n, profile, eaves) {
     }
     return m;
   };
-  for (const l of levels) {
-    if (l.id === last) continue;
-    const s = levelSolid(geo, keep, b, l.id, { roofOverlap: PROUD }), f = s.frame;
-    let m = arriving(withStairs(s.solid, b, l.id, f.top), b, l.id);
-    const roof = roofSolid(geo, keep, b, l.id, lo, hi);
+  let carry = null;
+  levels.forEach((l, i) => {
+    if (l.id === last) return;
+    const roof = roofSolid(geo, keep, b, l.id, lo, hi), next = levels[i + 1], zc = snap(next.floorZ - b.shell.slab);
+    const bl = roof ? building(withoutRoofOf(inputs, l.id)) : b, s = levelSolid(geo, keep, bl, l.id, { roofOverlap: PROUD }), f = s.frame;
+    let m = arriving(withStairs(s.solid, bl, l.id, f.top), bl, l.id);
+    if (carry) {
+      m = seamed(geo, keep, m, carry, s.plan.footprint, f.bottom, f.floor);
+      carry = null;
+    }
     if (roof) {
-      notes.push({ code: "roof.fixed", element: l.id, message: `the roof over level ${l.id} is printed with its level (only the roof of the last level comes off)` });
       const pockets2 = windowRecesses(geo, keep, withWindows, l.id, profile, n, notes);
-      m = keep(geo.Manifold.union([m, roof.solid]));
-      if (pockets2.length) m = keep(m.subtract(keep(geo.Manifold.union(pockets2))));
+      let r5 = roof.solid;
+      if (pockets2.length) r5 = keep(r5.subtract(keep(geo.Manifold.union(pockets2))));
+      const up = keepAbove(keep, r5, zc), cut = zc - r5.boundingBox().min[2];
+      if (!up.isEmpty()) carry = up;
+      notes.push({ code: "roof.carried", element: l.id, message: `the roof over level ${l.id} is printed with level ${next.id}'s part: the part of level ${l.id} stays open from above${cut > 5e-3 ? ` (its lowest ${Math.round(cut * 100)} cm, under the cut, are not printed)` : ""}` });
     }
     const top = m.boundingBox().max[2];
-    parts.push({ id: l.id, kind: "level", level: l.id, base: f.bottom, top, solid: m, sections: sectionHeights(b, l.id, f.bottom, f.top), mask: null });
-  }
+    parts.push({ id: l.id, kind: "level", level: l.id, base: f.bottom, top, solid: m, sections: sectionHeights(bl, l.id, f.bottom, f.top), mask: null, footprint: s.plan.footprint });
+  });
   const split = splitHeight(b, last, eaves), z2 = split.z;
   const below = building(atSplit(inputs, last, z2, "below")), above = building(atSplit(inputs, last, z2, "above"));
   const sb = levelSolid(geo, keep, below, last, { roofOverlap: PROUD }), footprint = sb.plan.footprint;
   let lower = arriving(withStairs(sb.solid, below, last, z2), below, last);
+  const carried = carry;
+  if (carried) lower = seamed(geo, keep, lower, carried, sb.plan.footprint, sb.frame.bottom, sb.frame.floor);
   const roofed = !!b.roof?.byLevel(last).length, fp = () => prism(keep, loopsSection(geo, keep, footprint), lo, hi);
   if (roofed && split.roofBelow) {
     const r5 = roofSolid(geo, keep, below, last, lo, hi);
     if (r5) lower = keep(geo.Manifold.union([lower, keep(r5.solid.intersect(fp()))]));
   }
-  parts.push({ id: last, kind: "level", level: last, base: sb.frame.bottom, top: z2, solid: keepBelow(keep, lower, z2), sections: sectionHeights(b, last, sb.frame.bottom, z2), mask: null });
+  parts.push({ id: last, kind: "level", level: last, base: sb.frame.bottom, top: z2, solid: keepBelow(keep, lower, z2), sections: sectionHeights(b, last, sb.frame.bottom, z2), mask: null, footprint });
   const sa = levelSolid(geo, keep, above, last, { roofOverlap: PROUD }), r = roofed ? roofSolid(geo, keep, above, last, lo, hi) : null;
-  let upper = keepAbove(keep, r ? keep(geo.Manifold.union([sa.solid, r.solid])) : sa.solid, z2);
+  let upper = keepAbove(keep, keep(geo.Manifold.union([sa.solid, ...r ? [r.solid] : [], ...carried ? [carried] : []])), z2);
   if (eaves === "trim" && roofed) {
     upper = keep(upper.intersect(fp()));
     notes.push({ code: "eaves.trimmed", element: "roof", message: "the eaves and verges are cut at the outer faces of the walls (--eaves trim)" });
@@ -26202,27 +27148,38 @@ function buildParts(geo, keep, data, n, profile, eaves) {
   const pockets = roofed ? windowRecesses(geo, keep, withWindows, last, profile, n, notes) : [];
   if (pockets.length) upper = keep(upper.subtract(keep(geo.Manifold.union(pockets))));
   parts.push({ id: "roof", kind: "roof", level: last, base: z2, top: upper.boundingBox().max[2], solid: upper, sections: [snap(z2 + 0.01)], mask: footprint });
-  return { parts, split, notes };
+  for (const w of b.walls) for (const o of w.openings) if (o.infill) notes.push({ code: "slats.omitted", element: o.id, message: `the slats in opening ${o.id} of wall ${w.id} are not printed (too thin at this scale): the opening stays open` });
+  const made = [];
+  if (joints) for (let i = 0; i + 1 < parts.length; i++) {
+    const a = parts[i], c = parts[i + 1];
+    if (!a.footprint) continue;
+    const j = joinParts(geo, keep, a.solid, c.solid, a.footprint, b.shell.exteriorWall, c.base, mmPerM(n), profile, [a.id, c.id]);
+    a.solid = j.lower;
+    c.solid = j.upper;
+    a.top = Math.max(a.top, j.lower.boundingBox().max[2]);
+    made.push(j.info);
+    if (!j.info.made) notes.push({ code: "joint.none", element: `${a.id}/${c.id}`, message: `no joint between ${a.id} and ${c.id}: ${j.info.reason}` });
+  }
+  return { parts, split, notes, joints: made };
 }
 
 // packages/core/src/print/adjust.ts
 var r4 = (x) => Math.round(x * 1e4) / 1e4 + 0;
-var r62 = (x) => Math.round(x * 1e6) / 1e6 + 0;
+var r63 = (x) => Math.round(x * 1e6) / 1e6 + 0;
 var r22 = (x) => Math.round(x * 100) / 100 + 0;
 var EPS3 = 1e-9;
-var other = (a) => a === "X" ? "Y" : "X";
 function edgesOf2(poly) {
   return poly.map((a, i) => {
-    const b = poly[(i + 1) % poly.length];
-    if (Math.abs(a[0] - b[0]) < 1e-6) return { i, a, b, axis: "X", c: a[0], lo: Math.min(a[1], b[1]), hi: Math.max(a[1], b[1]) };
-    if (Math.abs(a[1] - b[1]) < 1e-6) return { i, a, b, axis: "Y", c: a[1], lo: Math.min(a[0], b[0]), hi: Math.max(a[0], b[0]) };
-    return { i, a, b, axis: null, c: 0, lo: 0, hi: 0 };
+    const b = poly[(i + 1) % poly.length], d = [b[0] - a[0], b[1] - a[1]];
+    const f = Math.abs(d[0]) < 1e-6 ? lineFrame("Y") : Math.abs(d[1]) < 1e-6 ? lineFrame("X") : lineFrame("D", canonicalDir(d));
+    const ta = lineT(f, a), tb = lineT(f, b);
+    return { i, a, b, f, c: lineC(f, a), lo: Math.min(ta, tb), hi: Math.max(ta, tb) };
   });
 }
-var edgeAt = (edges, axis, c, s0, s1) => edges.find((e) => e.axis === axis && Math.abs(e.c - c) < 2e-3 && (s0 + s1) / 2 > e.lo - 1e-6 && (s0 + s1) / 2 < e.hi + 1e-6) ?? null;
-function rayHit2(p, d, loops) {
+var edgeAt = (edges, f, c, s0, s1) => edges.find((e) => Math.abs(e.f.dir[0] * f.dir[1] - e.f.dir[1] * f.dir[0]) < 1e-6 && e.f.dir[0] * f.dir[0] + e.f.dir[1] * f.dir[1] > 0 && Math.abs(e.c - c) < 2e-3 && (s0 + s1) / 2 > e.lo - 1e-6 && (s0 + s1) / 2 < e.hi + 1e-6) ?? null;
+function rayHit2(p, d, loops2) {
   let best = null;
-  loops.forEach((poly, k) => {
+  loops2.forEach((poly, k) => {
     for (let i = 0; i < poly.length; i++) {
       const c = poly[i], e = poly[(i + 1) % poly.length], ex = e[0] - c[0], ey = e[1] - c[1], den = d[0] * ey - d[1] * ex;
       if (Math.abs(den) < 1e-12) continue;
@@ -26246,9 +27203,9 @@ function offsetEdges(poly, d) {
   const base = poly.map((a, i) => [a[0] - sgn * dir[i][1] * dd[i], a[1] + sgn * dir[i][0] * dd[i]]);
   return poly.map((_, i) => {
     const h = (i - 1 + n) % n, p = base[h], u = dir[h], q = base[i], v = dir[i], den = u[0] * v[1] - u[1] * v[0];
-    if (Math.abs(den) < 1e-12) return [r62(q[0]), r62(q[1])];
+    if (Math.abs(den) < 1e-12) return [r63(q[0]), r63(q[1])];
     const t = ((q[0] - p[0]) * v[1] - (q[1] - p[1]) * v[0]) / den;
-    return [r62(p[0] + u[0] * t), r62(p[1] + u[1] * t)];
+    return [r63(p[0] + u[0] * t), r63(p[1] + u[1] * t)];
   });
 }
 function adjustForPrint(data, n, profile, eaves = "keep") {
@@ -26259,18 +27216,38 @@ function adjustForPrint(data, n, profile, eaves = "keep") {
   const shell = { ...SHELL_DEFAULTS, ...d.shell };
   if (shell.exteriorWall < T - EPS3) {
     note("wall.exterior", "exterior walls", shell.exteriorWall, T, wallRule);
-    const g = T - shell.exteriorWall, grow3 = (r) => [r62(r[0] - g), r62(r[1] - g), r62(r[2] + g), r62(r[3] + g)];
+    const g = T - shell.exteriorWall, grow3 = (r) => [r63(r[0] - g), r63(r[1] - g), r63(r[2] + g), r63(r[3] + g)];
     for (const p of d.roof?.parts ?? []) {
       if (p.rect) p.rect = grow3(p.rect);
-      if (p.polygon) p.polygon = offsetPolygon(p.polygon, g).map((q) => [r62(q[0]), r62(q[1])]);
+      if (p.polygon) p.polygon = offsetPolygon(p.polygon, g).map((q) => [r63(q[0]), r63(q[1])]);
       p.extent = p.extent.map(grow3);
-      if (p.extentPolygon) p.extentPolygon = offsetPolygon(p.extentPolygon, g).map((q) => [r62(q[0]), r62(q[1])]);
+      if (p.extentPolygon) p.extentPolygon = offsetPolygon(p.extentPolygon, g).map((q) => [r63(q[0]), r63(q[1])]);
     }
-    shell.exteriorWall = r62(T);
+    shell.exteriorWall = r63(T);
   }
   if (shell.slab < S - EPS3) {
     note("slab", "floor and roof slabs", shell.slab, S, slabRule);
-    shell.slab = r62(S);
+    shell.slab = r63(S);
+  }
+  for (const w of d.walls ?? []) {
+    const floor = d.rooms.levels[w.level]?.floor_z;
+    if (floor !== void 0) w.z0 = r63(Math.min(w.z0, floor - shell.slab));
+    if (w.thickness < T - EPS3) {
+      note("wall.free", `wall ${w.id}`, w.thickness, T, wallRule, w.level);
+      w.thickness = r63(T);
+    }
+    for (const o of w.openings) {
+      const band = w.z1 - o.z1;
+      if (band > 1e-6 && band < S - EPS3) {
+        if (w.z1 - S - o.z0 >= H - EPS3) {
+          note("lintel.lowered", o.id, band, S, slabRule, w.level);
+          o.z1 = r63(w.z1 - S);
+        } else {
+          note("lintel.removed", o.id, band, 0, slabRule, w.level);
+          o.z1 = r63(w.z1);
+        }
+      }
+    }
   }
   d.shell = shell;
   if (!d.roof) {
@@ -26279,7 +27256,7 @@ function adjustForPrint(data, n, profile, eaves = "keep") {
   }
   if (d.roof && d.roof.covering + d.roof.buildup < S - EPS3) {
     note("roof.thickness", "roof", d.roof.covering + d.roof.buildup, S, slabRule);
-    d.roof.buildup = r62(S - d.roof.covering);
+    d.roof.buildup = r63(S - d.roof.covering);
   }
   const rooms = d.rooms.rooms, byLevel = /* @__PURE__ */ new Map();
   for (const r of rooms) byLevel.set(r.level, [...byLevel.get(r.level) ?? [], r]);
@@ -26315,15 +27292,15 @@ function adjustForPrint(data, n, profile, eaves = "keep") {
     rs.forEach((r, ri) => {
       if (!moves[ri].some((m) => m > 0)) return;
       const before = edgesOf2(polys[ri]), after = offsetEdges(polys[ri], moves[ri]), moved = edgesOf2(after);
-      const shift = (axis, c, s0, s1) => {
-        const e = edgeAt(before, axis, c, s0, s1);
-        return e && moves[ri][e.i] > 0 ? moved[e.i].c : null;
+      const shift = (f, c, s0, s1) => {
+        const e = edgeAt(before, f, c, s0, s1);
+        return e && moves[ri][e.i] > 0 ? r63(lineC(f, moved[e.i].a)) : null;
       };
       for (const o of r.openings) {
-        const c = shift(o.plane_axis, o.inner, Math.min(o.from_, o.to), Math.max(o.from_, o.to));
+        const c = shift(windowFrame(o), o.inner, Math.min(o.from_, o.to), Math.max(o.from_, o.to));
         if (c !== null) o.inner = c;
       }
-      for (const dj of r.doors) dj.across = dj.across.map((c) => shift(other(dj.along), c, dj.from_, dj.to) ?? c);
+      for (const dj of r.doors) dj.across = dj.across.map((c) => shift(gapFrame(dj), c, dj.from_, dj.to) ?? c);
       r.polygon = after.map((p) => [p[0], p[1]]);
       const xs = after.map((p) => p[0]), ys = after.map((p) => p[1]);
       r.bbox = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
@@ -26340,7 +27317,7 @@ function adjustForPrint(data, n, profile, eaves = "keep") {
     const ceilingTop = r.ceiling.kind === "flat" ? r.ceiling.z : r.ceiling.flat_z;
     r.openings = r.openings.filter((o) => {
       if (o.polygon_YZ) return true;
-      const e = edgeAt(edges, o.plane_axis, o.inner, Math.min(o.from_, o.to), Math.max(o.from_, o.to));
+      const e = edgeAt(edges, windowFrame(o), o.inner, Math.min(o.from_, o.to), Math.max(o.from_, o.to));
       let s0 = Math.min(o.from_, o.to), s1 = Math.max(o.from_, o.to), z0 = o.sill_z ?? floor, z1 = o.head_z ?? floor + 2.4;
       const grow3 = (a, c, lo, hi) => {
         if (hi - lo < H - EPS3) return null;
@@ -26366,19 +27343,19 @@ function adjustForPrint(data, n, profile, eaves = "keep") {
         [z0, z1] = g;
       }
       const flip = o.from_ > o.to;
-      o.from_ = r62(flip ? s1 : s0);
-      o.to = r62(flip ? s0 : s1);
-      o.sill_z = r62(z0);
-      o.head_z = r62(z1);
+      o.from_ = r63(flip ? s1 : s0);
+      o.to = r63(flip ? s0 : s1);
+      o.sill_z = r63(z0);
+      o.head_z = r63(z1);
       return true;
     });
     for (const dj of r.doors) {
       if (dj.to - dj.from_ < H - EPS3) {
         const g = (H - (dj.to - dj.from_)) / 2;
         note("opening.widened", dj.door_id ?? "passage", dj.to - dj.from_, H, holeRule, r.level);
-        dj.from_ = r62(dj.from_ - g);
-        dj.to = r62(dj.to + g);
-        dj.width = r62(dj.to - dj.from_);
+        dj.from_ = r63(dj.from_ - g);
+        dj.to = r63(dj.to + g);
+        dj.width = r63(dj.to - dj.from_);
       }
     }
     if (top !== null) {
@@ -26388,22 +27365,22 @@ function adjustForPrint(data, n, profile, eaves = "keep") {
         if (band > 1e-6 && band < S - EPS3) {
           if (top - S - sill >= H - EPS3) {
             note("lintel.lowered", o.id, band, S, slabRule, r.level);
-            o.head_z = r62(top - S);
+            o.head_z = r63(top - S);
           } else {
             note("lintel.removed", o.id, band, 0, slabRule, r.level);
-            o.head_z = r62(top);
+            o.head_z = r63(top);
           }
         }
         if (r.level === last && o.sill_z !== void 0 && sill - top > 1e-6 && sill - top < S - EPS3) {
           note("sill.lowered", o.id, sill - top, 0, slabRule, r.level);
-          o.sill_z = r62(top);
+          o.sill_z = r63(top);
         } else if (r.level === last && sill < top - 1e-6 && o.head_z > top + 1e-6) {
           if (top - sill < H - EPS3) {
             note("opening.at-split", o.id, top - sill, 0, holeRule, r.level);
-            o.sill_z = r62(top);
+            o.sill_z = r63(top);
           } else if (o.head_z - top < H - EPS3) {
             note("opening.at-split", o.id, o.head_z - top, 0, holeRule, r.level);
-            o.head_z = r62(top);
+            o.head_z = r63(top);
           }
         }
       }
@@ -26412,14 +27389,14 @@ function adjustForPrint(data, n, profile, eaves = "keep") {
         if (band > 1e-6 && band < S - EPS3) {
           if (top - S - floor >= H - EPS3) {
             note("lintel.lowered", id3, band, S, slabRule, r.level);
-            dj.height = r62(top - S - floor);
+            dj.height = r63(top - S - floor);
           } else {
             note("lintel.removed", id3, band, 0, slabRule, r.level);
-            dj.height = r62(top - floor);
+            dj.height = r63(top - floor);
           }
         } else if (r.level === last && head > top + 1e-6 && head - top < H - EPS3) {
           note("opening.at-split", id3, head - top, 0, holeRule, r.level);
-          dj.height = r62(top - floor);
+          dj.height = r63(top - floor);
         }
       }
     }
@@ -26427,11 +27404,11 @@ function adjustForPrint(data, n, profile, eaves = "keep") {
       const holes = [];
       for (const o of r.openings) {
         if (o.polygon_YZ) continue;
-        const s0 = Math.min(o.from_, o.to), s1 = Math.max(o.from_, o.to), e = edgeAt(edges, o.plane_axis, o.inner, s0, s1);
+        const s0 = Math.min(o.from_, o.to), s1 = Math.max(o.from_, o.to), e = edgeAt(edges, windowFrame(o), o.inner, s0, s1);
         if (e) holes.push({ e, h: { kind: "window", o, s0, s1 } });
       }
       for (const dj of r.doors) for (const c of dj.across) {
-        const e = edgeAt(edges, other(dj.along), c, dj.from_, dj.to);
+        const e = edgeAt(edges, gapFrame(dj), c, dj.from_, dj.to);
         if (e) {
           holes.push({ e, h: { kind: "door", o: dj, s0: dj.from_, s1: dj.to } });
           break;
@@ -26456,7 +27433,7 @@ function adjustForPrint(data, n, profile, eaves = "keep") {
           } else if (A.kind === "door" && B.kind === "door") {
             note("pier.merged", `${A.o.door_id ?? "passage"} + ${B.o.door_id ?? "passage"}`, gap, 0, pierRule, r.level);
             A.o.to = B.o.to;
-            A.o.width = r62(A.o.to - A.o.from_);
+            A.o.width = r63(A.o.to - A.o.from_);
             A.o.height = Math.max(A.o.height ?? DEFAULT_DOOR_HEIGHT, B.o.height ?? DEFAULT_DOOR_HEIGHT);
             r.doors = r.doors.filter((x) => x !== B.o);
           } else {
@@ -26468,8 +27445,8 @@ function adjustForPrint(data, n, profile, eaves = "keep") {
             } else {
               note("pier.widened", w.o.id, gap, P, pierRule, r.level);
               const flip = w.o.from_ > w.o.to;
-              w.o.from_ = r62(flip ? s1 : s0);
-              w.o.to = r62(flip ? s0 : s1);
+              w.o.from_ = r63(flip ? s1 : s0);
+              w.o.to = r63(flip ? s0 : s1);
             }
           }
         }
@@ -26488,7 +27465,7 @@ function adjustForPrint(data, n, profile, eaves = "keep") {
       const [x0, y0, x1, y1] = w.plan_rect, gx = H - (x1 - x0) > EPS3 ? (H - (x1 - x0)) / 2 : 0, gy = H - (y1 - y0) > EPS3 ? (H - (y1 - y0)) / 2 : 0;
       if (gx > 0 || gy > 0) {
         note("roof-window.widened", w.id, Math.min(x1 - x0, y1 - y0), H, holeRule, r.level);
-        w.plan_rect = [r62(x0 - gx), r62(y0 - gy), r62(x1 + gx), r62(y1 + gy)];
+        w.plan_rect = [r63(x0 - gx), r63(y0 - gy), r63(x1 + gx), r63(y1 + gy)];
       }
     }
   }
@@ -26496,7 +27473,7 @@ function adjustForPrint(data, n, profile, eaves = "keep") {
     const [x0, y0, x1, y1] = c.rect, gx = P - (x1 - x0) > EPS3 ? (P - (x1 - x0)) / 2 : 0, gy = P - (y1 - y0) > EPS3 ? (P - (y1 - y0)) / 2 : 0;
     if (gx > 0 || gy > 0) {
       note("chimney.grown", c.id, Math.min(x1 - x0, y1 - y0), P, pierRule);
-      c.rect = [r62(x0 - gx), r62(y0 - gy), r62(x1 + gx), r62(y1 + gy)];
+      c.rect = [r63(x0 - gx), r63(y0 - gy), r63(x1 + gx), r63(y1 + gy)];
     }
   }
   const mm2 = (x) => Number.isFinite(x) ? r22(x * k) : null;
@@ -26636,13 +27613,13 @@ function bedContact(P, I) {
 function splitNeedles(P, index, hMin) {
   const tris = [];
   for (let t = 0; t < index.length / 3; t++) tris.push([index[t * 3], index[t * 3 + 1], index[t * 3 + 2]]);
-  const at = (v) => [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]];
+  const at2 = (v) => [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]];
   const len2 = (a, b) => {
-    const p = at(a), q = at(b);
+    const p = at2(a), q = at2(b);
     return (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 + (p[2] - q[2]) ** 2;
   };
   const height = (t) => {
-    const [a, b, c] = t.map(at), ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    const [a, b, c] = t.map(at2), ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
     const twice = Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx), long = Math.sqrt(Math.max(len2(t[0], t[1]), len2(t[1], t[2]), len2(t[2], t[0])));
     return long ? twice / long : 0;
   };
@@ -26663,7 +27640,8 @@ function splitNeedles(P, index, hMin) {
       const a = t[k], b = t[(k + 1) % 3], c = t[(k + 2) % 3], o = edgeOf.get(key(b, a));
       if (o === void 0 || !alive[o] || o === i) continue;
       const u = tris[o], d = u.find((v) => v !== a && v !== b);
-      if (height([c, a, d]) < hMin || height([c, d, b]) < hMin) continue;
+      const flat = height(t) < 1e-9, h1 = height([c, a, d]), h2 = height([c, d, b]);
+      if (flat ? h1 < 1e-9 || h2 < 1e-9 : h1 < hMin || h2 < hMin) continue;
       alive[i] = alive[o] = false;
       for (const x of [t, u]) for (let j = 0; j < 3; j++) if (edgeOf.get(key(x[j], x[(j + 1) % 3])) === (x === t ? i : o)) edgeOf.delete(key(x[j], x[(j + 1) % 3]));
       tris.push([c, a, d], [c, d, b]);
@@ -26749,7 +27727,7 @@ var r24 = (x) => Math.round(x * 100) / 100 + 0;
 var r1 = (x) => Math.round(x * 10) / 10 + 0;
 function partSizes(data, geo, n, o) {
   const k = mmPerM(n), eaves = o.eaves ?? "keep", margin = o.margin ?? 10;
-  const parts = scoped((keep) => buildParts(geo, keep, adjustForPrint(data, n, o.profile, eaves).data, n, o.profile, eaves).parts.map((p) => {
+  const parts = scoped((keep) => buildParts(geo, keep, adjustForPrint(data, n, o.profile, eaves).data, n, o.profile, eaves, o.joints ?? true).parts.map((p) => {
     const bb = p.solid.boundingBox(), sizeMm = [0, 1, 2].map((i) => r24((bb.max[i] - bb.min[i]) * k));
     return { id: p.id, sizeMm, fit: fitOnBed(sizeMm, o.bed, margin) };
   }));
@@ -26766,17 +27744,17 @@ function transformed(P, f) {
   }
   return out;
 }
-function describe3(b, level, at) {
-  const t = b.shell.exteriorWall + 0.05, near = (z2) => Math.abs(z2 - at[2]) < 0.04;
+function describe3(b, level, at2) {
+  const t = b.shell.exteriorWall + 0.05, near = (z2) => Math.abs(z2 - at2[2]) < 0.04;
   for (const r of roomsOfLevel(b, level)) for (const w of r.walls) {
     const holes = [...r.windows.filter((x) => x.wallId === w.id).map((x) => ({ id: x.id, t0: x.t0, t1: x.t1, head: r.floorZ + x.head })), ...r.doors.filter((x) => x.wallId === w.id).map((x) => ({ id: x.id ?? "passage", t0: x.t0, t1: x.t1, head: r.floorZ + (w.holes.find((h) => h.t0 === x.t0)?.z1 ?? 0) }))];
     for (const h of holes) {
       if (!near(h.head)) continue;
-      const s = (at[0] - w.a[0]) * w.dir[0] + (at[1] - w.a[1]) * w.dir[1], d = -((at[0] - w.a[0]) * w.inward[0] + (at[1] - w.a[1]) * w.inward[1]);
+      const s = (at2[0] - w.a[0]) * w.dir[0] + (at2[1] - w.a[1]) * w.dir[1], d = -((at2[0] - w.a[0]) * w.inward[0] + (at2[1] - w.a[1]) * w.inward[1]);
       if (s > h.t0 - 0.05 && s < h.t1 + 0.05 && d > -0.05 && d < t) return `lintel of ${h.id}`;
     }
   }
-  for (const r of roomsOfLevel(b, level)) if (pointInPolygon([at[0], at[1]], r.polygon, 0.01) && near(ceilingAt(r, at[0], at[1]))) return `ceiling of ${r.id}`;
+  for (const r of roomsOfLevel(b, level)) if (pointInPolygon([at2[0], at2[1]], r.polygon, 0.01) && near(ceilingAt(r, at2[0], at2[1]))) return `ceiling of ${r.id}`;
   return null;
 }
 function printModel(data, geo, o) {
@@ -26793,13 +27771,13 @@ function printModel(data, geo, o) {
   }
   if (n === null) {
     const problems2 = [`no standard scale down to 1:${SCALES[SCALES.length - 1]} fits the bed ${o.bed.x} × ${o.bed.y}${o.bed.z ? ` × ${o.bed.z}` : ""} mm with a ${margin} mm margin`];
-    const res2 = { ok: false, n: null, auto, candidates, parts: [], split: null, adjustments: [], notes: [], minimums: null, problems: problems2 };
+    const res2 = { ok: false, n: null, auto, candidates, parts: [], split: null, joints: [], adjustments: [], notes: [], minimums: null, problems: problems2 };
     return { ...res2, report: printReport(res2, o) };
   }
   const scale = n, k = mmPerM(scale);
   const adj = adjustForPrint(data, scale, profile, eaves), adjusted = building(adj.data), titles = new Map(adjusted.levels.map((l) => [l.id, l.name]));
   const built = scoped((keep) => {
-    const b = buildParts(geo, keep, adj.data, scale, profile, eaves);
+    const b = buildParts(geo, keep, adj.data, scale, profile, eaves, o.joints ?? true);
     return {
       ...b,
       parts: b.parts.map((p) => {
@@ -26828,8 +27806,8 @@ function printModel(data, geo, o) {
     }
     const toBuilding = (q) => [r24(q[0] / k), r24((best.flipped ? -q[1] : q[1]) / k), r24((best.flipped ? -q[2] : q[2]) / k)];
     const located = (list) => list.map((x) => {
-      const at = toBuilding(x.at), what = describe3(adjusted, p.level, at);
-      return { ...x, at, ...what ? { what } : {} };
+      const at2 = toBuilding(x.at), what = describe3(adjusted, p.level, at2);
+      return { ...x, at: at2, ...what ? { what } : {} };
     });
     best.over = { ...best.over, bridges: located(best.over.bridges), supports: located(best.over.supports) };
     const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
@@ -26885,6 +27863,7 @@ function printModel(data, geo, o) {
     candidates,
     parts,
     split: built.split,
+    joints: built.joints,
     adjustments: adj.changes,
     notes: built.notes,
     minimums: adj.minimums,
@@ -26913,6 +27892,7 @@ function printReport(m, o) {
       candidates: m.candidates.map((c) => ({ scale: scaleLabel(c.n), fits: c.fits, parts: c.parts.map((p) => ({ id: p.id, sizeMm: p.sizeMm, rotated: p.fit.rotated })) }))
     },
     split: m.split,
+    joints: m.joints,
     minimumsMm: m.minimums,
     parts: m.parts.map((p) => ({
       id: p.id,
@@ -27116,6 +28096,8 @@ checked (watertight, one solid, read back) and fitted on the bed.
   --min-wall <mm>               override the profile's smallest wall
   --margin <mm>                 kept free on every side of the bed — default 10
   --eaves keep | trim           trim: cut the eaves and verges at the outer faces of the walls — default keep
+  --joints on | off             registration tabs on the walls and pockets in the part above, so the parts stack like
+                                bricks — default on
   --scales                      list the standard scales with the size of every part, write nothing
   --dry-run                     build and check, write dry-run.json and a preview, print the approval card — no STL
   --details                     with the card: every printability change, note and overhang
@@ -27132,12 +28114,14 @@ function settingsFrom(o, base) {
     minWall: num3("--min-wall") ?? base?.minWall ?? null,
     margin: num3("--margin") ?? base?.margin ?? 10,
     eaves: o["--eaves"] ?? base?.eaves ?? "keep",
+    joints: o["--joints"] !== void 0 ? o["--joints"] === "on" : base?.joints ?? true,
     lang: o["--lang"] ?? base?.lang ?? "en"
   };
   if (!s.bed) throw new UsageError(`--bed is required: a printer ("K1C", "Prusa MK4") or the bed size in mm ("220x220x250")
 
 ${PRINT_HELP}`);
   if (s.eaves !== "keep" && s.eaves !== "trim") throw new UsageError(`--eaves must be keep or trim, not ${s.eaves}`);
+  if (o["--joints"] !== void 0 && o["--joints"] !== "on" && o["--joints"] !== "off") throw new UsageError(`--joints must be on or off, not ${String(o["--joints"])}`);
   if (!LANGS.includes(s.lang)) throw new UsageError(`--lang ${s.lang}: one of ${LANGS.join(", ")}`);
   return s;
 }
@@ -27158,6 +28142,7 @@ function buildCommand(ws, s, outputDir) {
   if (s.minWall !== null) a.push(`--min-wall ${s.minWall}`);
   if (s.margin !== 10) a.push(`--margin ${s.margin}`);
   if (s.eaves !== "keep") a.push(`--eaves ${s.eaves}`);
+  if (s.joints === false) a.push("--joints off");
   if (s.lang !== "en") a.push(`--lang ${s.lang}`);
   if (outputDir) a.push(`--output-dir ${q(outputDir)}`);
   return a.join(" ");
@@ -27177,6 +28162,9 @@ function facts(m, p, details) {
   out.push(`- Printer: ${bedText(p.bed)}, ${p.margin} mm margin`);
   out.push(`- ${m.parts.length} part(s), each printed on its own:`, ...partLines(m));
   if (m.split) out.push(`- The roof comes off at ${m.split.z.toFixed(2)} m (${SPLIT_RULE[m.split.rule]})`);
+  const joined = m.joints.filter((j) => j.made);
+  if (joined.length) out.push(`- The parts stack and lock: ${joined.map((j) => `${j.tabs} tabs (${j.heightMm} mm) on ${j.between[0]} into ${j.between[1]}`).join("; ")}, ${p.profile.clearance} mm clearance`);
+  for (const j of m.joints.filter((x) => !x.made)) out.push(`- No joint between ${j.between[0]} and ${j.between[1]}: ${j.reason}`);
   out.push(`- Profile: ${p.profile.label} — walls at least ${p.profile.wall} mm on the print`);
   if (m.adjustments.length) {
     const list = m.adjustments.map((a) => `${a.element}: ${a.scaledMm} → ${a.printedMm} mm (${a.rule})`);
@@ -27205,7 +28193,7 @@ ${PRINT_HELP}`);
   const geo = await geometry();
   if (o["--scales"]) {
     console.log(`${id3}: part sizes on ${bedText(p.bed)} (margin ${p.margin} mm, ${p.profile.id})`);
-    for (const c of scaleTable(data, geo, { bed: p.bed, profile: p.profile, margin: p.margin, eaves: s.eaves })) {
+    for (const c of scaleTable(data, geo, { bed: p.bed, profile: p.profile, margin: p.margin, eaves: s.eaves, joints: s.joints ?? true })) {
       console.log(`  ${scaleLabel(c.n).padEnd(6)} ${c.fits ? "fits    " : "too big "} ${c.parts.map((x) => `${x.id} ${mm(x.sizeMm)}${x.fit.rotated ? " (turned)" : ""}`).join(" · ")}`);
     }
     return 0;
@@ -27291,7 +28279,7 @@ No STL was written. Report: \`${rel(path4.join(slot.dir, "print-report.json"))}\
   return 0;
 }
 function buildModel(data, geo, id3, p, s, meta3) {
-  return printModel(data, geo, { bed: p.bed, profile: p.profile, scale: p.scale, margin: p.margin, eaves: s.eaves, name: id3, meta: meta3 });
+  return printModel(data, geo, { bed: p.bed, profile: p.profile, scale: p.scale, margin: p.margin, eaves: s.eaves, joints: s.joints ?? true, name: id3, meta: meta3 });
 }
 
 // packages/house-forge/src/python.ts
@@ -27359,7 +28347,7 @@ var COMMAND_HELP = {
   print: PRINT_HELP
 };
 var PY_TOOLS = { image: ["prepare", "calibrate"], pdf: ["text", "svg", "arcs", "render"], cad: ["inspect", "walls", "dwg2dxf"] };
-var VALUED = /* @__PURE__ */ new Set(["--name", "--output-dir", "--bed", "--scale", "--nozzle", "--min-wall", "--margin", "--eaves", "--lang", "--from", "--level"]);
+var VALUED = /* @__PURE__ */ new Set(["--name", "--output-dir", "--bed", "--scale", "--nozzle", "--min-wall", "--margin", "--eaves", "--joints", "--lang", "--from", "--level"]);
 var FLAGS = /* @__PURE__ */ new Set(["--help", "-h", "--json", "--scales", "--dry-run", "--details", "--new-version"]);
 function parse3(args) {
   const opts = {}, positional = [];
@@ -27466,11 +28454,16 @@ function compile2(o) {
       console.log(`  - ${r.id} ${r.name} (${r.kind}): ${fmt3(r.area)} m²${src.area_data !== src.area ? ` — on the drawing ${fmt3(src.area_data)} m² (${src.area_data ? `${Math.round((src.area - src.area_data) / src.area_data * 100)} %` : ""})` : ""}${under}`);
     }
   }
-  const doors = plan.data.doors.length, windows = rooms.reduce((s, r) => s + r.openings.length, 0), stairs = b.stairs.map((s) => `${s.id} ${s.fromLevel} → ${s.toLevel}`);
+  const doors = plan.data.doors.length, windows = rooms.reduce((s, r) => s + r.openings.length, 0), stairs = b.stairs.map((s) => `${s.id} ${s.kind} ${s.fromLevel} → ${s.toLevel}`);
   console.log(`- Openings: ${doors} door(s), ${windows} window(s) (counted per room)${stairs.length ? `; stairs ${stairs.join(", ")}` : ""}`);
+  const outside = [
+    ...b.platforms.map((p) => p.kind === "steps" ? `steps ${p.id} (${p.blocks.length} step(s) up to ${fmt3(p.blocks[p.blocks.length - 1].top)} m)` : `terrace ${p.id} (${fmt3(area(p.blocks[0].polygon))} m² at ${fmt3(p.blocks[0].top)} m, ${p.level})`),
+    ...b.walls.map((w) => `wall ${w.id} (${fmt3(Math.hypot(w.b[0] - w.a[0], w.b[1] - w.a[1]))} × ${fmt3(w.thickness)} m${w.openings.some((o2) => o2.infill) ? ", slats" : ""})`)
+  ];
+  console.log(`- Outside the walls: ${outside.length ? outside.join(", ") : "nothing (no steps, terrace, columns)"}`);
   if (raw.roof?.parts?.length) {
     const top = roofBounds(b)?.max[2];
-    for (const p of raw.roof.parts) console.log(`- Roof part ${p.id}: ${p.type}${p.pitch !== void 0 ? ` ${p.pitch}°` : ""} over ${p.level}${p.knee !== void 0 ? `, knee wall ${p.knee} m` : p.lines ? ", from the 140 / 220 lines" : ", resting on the ceiling"}`);
+    for (const p of raw.roof.parts) console.log(`- Roof part ${p.id}: ${p.type}${p.pitch !== void 0 ? ` ${p.pitch}°` : ""} over ${p.level}${p.knee !== void 0 ? `, knee wall ${p.knee} m` : p.lines ? ", from the 140 / 220 lines" : ", resting on the ceiling"}${p.type === "flat" ? p.parapet ? `, parapet ${p.parapet} m` : ", no parapet (a plain slab)" : ""}`);
     console.log(`- Roof top ${top !== void 0 ? `${fmt3(top)} m` : "—"}${raw.roof.ridgeHeight !== void 0 ? ` (drawing: ridge ${raw.roof.ridgeHeight} m)` : ""}; ${raw.roof.dormers?.length ?? 0} dormer(s), ${raw.roof.chimneys?.length ?? 0} chimney(s), ${rooms.reduce((s, r) => s + r.roof_windows.length, 0)} roof window(s)`);
   } else if (b.roof) console.log(`- Roof: one gable from the level slope (${raw.levels?.filter((l) => l.slope).map((l) => l.id).join(", ")})`);
   else console.log("- Roof: none — the top level is closed by a flat slab");
@@ -27572,7 +28565,7 @@ var entry = process.argv[1] ? fs6.realpathSync(process.argv[1]) : "";
 if (entry && fs6.realpathSync(fileURLToPath4(import.meta.url)) === entry) {
   main(process.argv.slice(2)).then((code) => process.exit(code), (e) => {
     if (e instanceof UsageError) console.error(e.message);
-    else console.error(e instanceof Error ? e.stack ?? e.message : String(e));
+    else console.error(e instanceof Error ? e.stack ?? e.message : kernelMessage(e));
     process.exit(2);
   });
 }

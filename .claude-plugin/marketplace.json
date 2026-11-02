@@ -10,7 +10,7 @@
       "name": "house-forge",
       "source": "./plugins/house-forge",
       "description": "Floor plans, PDF sheets or CAD drawings into STL parts of a house model that fit your printer, with preview approval.",
-      "version": "0.1.0"
+      "version": "0.2.0"
     }
   ]
 }

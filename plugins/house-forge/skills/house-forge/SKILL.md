@@ -12,7 +12,8 @@ All geometry — the plan compiler, the roof, the solids, the printability chang
 from `scripts/house-forge.mjs`. Plans are read by you, with the tools of the script, into `plan.json`.
 
 Don't: build the STL before the user approves the dry run (step 6); guess the printer, the scale, a dimension or a roof pitch
-you can ask for; write your own geometry, STL or image code when a command does it; retype or recompute values the script
+you can ask for (a plan with no dimension and no area at all is the exception: take the scale from its symbols before asking
+anything — step 2); write your own geometry, STL or image code when a command does it; retype or recompute values the script
 prints (quote them); make up file names or paths — the script chooses them and prints the real ones.
 
 ## Runtime and tools
@@ -38,10 +39,12 @@ multiple-choice question tool when the host has one, otherwise ask in the conver
 
 ## Language
 
-Talk to the user in the language they write in, from the first reply on. The script prints in English; `--lang pl` makes
-the preview labels Polish (`preview`, `print`). Translate only labels and descriptions when you show the script's output:
-keep every number, unit, file name, id and command exactly as printed (switch only the decimal separator to the user's
-convention). Room names in `plan.json` stay as printed on the drawing.
+Talk to the user in the language they write in, from the first reply on — every sentence of every reply, also the first
+one after a long run of tools (your notes to yourself and the script's output are English; the user's reply is not). The
+script prints in English; `--lang pl` makes the preview labels Polish (`preview`, `print`). Translate only labels and
+descriptions when you show the script's output: keep every number, unit, file name, id and command exactly as printed
+(switch only the decimal separator to the user's convention). Room names in `plan.json` stay as printed on the drawing; the
+translations in `names` (`references/authoring-conventions.md`) are for the Home Simulator app — the print does not need them.
 
 ## Workflow
 
@@ -49,8 +52,9 @@ convention). Room names in `plan.json` stay as printed on the drawing.
 
 Ask for the drawings: every floor plan (one per storey), and the section or the roof plan or an elevation of a house when they
 exist — the roof pitch, the knee wall and the ridge height are on those. A real-estate or catalogue plan image works; an
-architect's PDF or a DXF is more exact. Agree on a short name now (lower-case, hyphens, e.g. `dom-anny`; it becomes the plan's
-project id) and pass it as `--name` to every command, so all files of the house land in one workspace.
+architect's PDF or a DXF is more exact. Choose a short name yourself — from the name on the drawings or the file names,
+lower-case with hyphens, e.g. `dom-anny`; it becomes the plan's project id — say it in half a sentence and go on (do not ask;
+the user may rename it later). Pass it as `--name` to every command, so all files of the house land in one workspace.
 
 ```bash
 node "$HF" intake plan-parter.png plan-pietro.png --name dom-anny
@@ -79,8 +83,13 @@ node "$HF" cad dwg2dxf <drawing.dwg> -o house-forge-output/<name>/source/cad
 ```
 
 Each tool's options: `node "$HF" <group> <tool> --help`. Write `house-forge-output/<name>/source/plan.json` (project id = the
-name). Only the building matters for the print: levels, rooms, doors, passages, windows, stairs, the roof, roof windows — leave
-out furniture, electrical points, the plot and the sun. Then:
+name). Only the building matters for the print: levels, rooms, doors, passages, windows, stairs, the roof, roof windows, and
+what shapes it from outside — entrance steps, an entrance canopy with its columns, lamellas, the parapet of a flat roof
+(`references/authoring-conventions.md` § Outside the walls, `references/roofs.md`); the ground level next to the house
+(`site.groundLevel`, from the section or an elevation) when there are outdoor steps. A terrace only after the user says so
+(step 3). Leave out furniture, electrical points, the plot boundary and the sun. Stairs have a `kind` — straight, l-turn or u-turn — read from the tread
+lines (`references/authoring-conventions.md` § Stairs); walls at 45° are drawn as they are, double doors are `hinged-double`
+and bifolds `folding` (§ Doors and openings, § Walls that are not orthogonal). Then:
 
 ```bash
 node "$HF" compile --name <name>      # errors, warnings, adjustments, then "what the plan says"
@@ -96,19 +105,36 @@ Then show the user what you read, as a short card (from the `compile` output and
 
 - levels with their rooms: name, area from the outline, and the area printed on the drawing when it differs by more than 5 %;
 - the roof: type, pitch, knee wall, ridge height, dormers and roof windows — and which of these you assumed;
-- doors and windows per level (counts), stairs;
+- doors and windows per level (counts), stairs with their kind and number of steps;
+- outside: entrance steps (number of steps), the canopy and its columns, lamellas, the parapet of a flat roof (height);
 - the plan preview images (one per level) and `3d.png`;
 - at most two questions about what you could not read.
+
+Not questions, said on the card instead: a plan with no dimension and no area at all is read with the scale from its door and
+fixture symbols (`references/reading-plans.md`, `summary` PROBABLE) — say so in one sentence and that one real dimension (a
+room width, the total area) would make it exact, as an offer and not as a question (neither first nor on the card). Stairs that lead to a
+storey with no drawing are left out — say so, and that a plan of that storey would add them.
+
+Write the whole card in the user's language, labels and words alike: the kind of stairs, the roof type, door types and level
+names said in the words a person uses in that language (straight, L-shaped or U-turn stairs, a gable roof …); only ids,
+numbers, units and file names stay as the tools print them.
 
 Ask: **is this your house — or should I change something?** Turn every remark into a change of `plan.json`, compile, preview,
 and show the changed card.
 
-### 3. Roof facts that are missing
+### 3. The terrace and roof facts that are missing
+
+A terrace drawn on the plan (paving outside the walls, often under a pergola) is part of the model only when the user wants
+it — ask once, after the card, in plain words with its size: "The plan shows a terrace of about 9 × 3.6 m at the garden side —
+should it be part of the model?" Yes → a `terraces` entry (its level from the section or the plan, else −0.02; a pergola's
+posts as columns, a solid roof over it as a flat part, an open lattice left out); no → leave it out and say so on the card.
+Ask nothing when no terrace is drawn.
 
 A flat needs no roof. For a house, every fact `references/roofs.md` names that the drawings do not show is one question, asked
 one at a time, in plain words — for example "What is the roof pitch — 30°, 35°, 40°, 45°, or don't you know?" ("don't know" → 40°
-and `"confidence": "probable"` on the roof, said on the card). Never ask about technical values the user cannot know
-(covering, buildup, eaves width): the defaults are fine for a model.
+and `"confidence": "probable"` on the roof, said on the card). A flat roof whose parapet the elevations do not show: "Does the
+flat roof have a parapet round it, as most flat roofs do — about 30 cm?" ("don't know" → 0.3). Never ask about technical values
+the user cannot know (covering, buildup, eaves width): the defaults are fine for a model.
 
 ### 4. Printer
 
@@ -129,8 +155,9 @@ node "$HF" print --name <name> --bed "K1C" --scales
 ```
 
 The table gives the size of every part (one per storey and a removable roof) at each standard scale and whether all of them
-fit the bed (10 mm margin). Suggest the largest scale that fits (`auto` picks it), and one smaller if the user wants a quicker
-print; say plainly how big the model will be. Pass a chosen scale as `--scale 1:N` to the dry run and the build.
+fit the bed (10 mm margin). Do not ask about the scale: take the largest that fits (`auto` picks it) unless the user already
+named one or a size, go straight on to the dry run, and say on the card plainly how big the model will be and that a smaller
+scale is one word away (e.g. "1:100 — about 11 × 10 cm"). Pass a chosen scale as `--scale 1:N` to the dry run and the build.
 
 ### 6. Approval card
 

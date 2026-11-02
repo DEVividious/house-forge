@@ -1,7 +1,7 @@
 {
   "name": "house-forge",
   "displayName": "House Forge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Turn floor plans, PDF sheets or CAD drawings into a 3D-printable scale model of a house or flat: plan reading, roof, printer fit, preview approval and STL parts.",
   "author": {
     "name": "Vividious",
